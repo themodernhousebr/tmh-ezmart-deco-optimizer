@@ -45,8 +45,9 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.2.0-dev.3; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.2.0-dev.4; intervalo de consultas: %s segundos.', interval)
     cycle = 0
+    previous_summary = None
     client = None
     disabled = set()
     while not STOP.is_set():
@@ -93,6 +94,12 @@ def main():
                 else:
                     status['mode'] = result.workmode
             status['unsupported'] = sorted(disabled)
+            summary = {key: status[key] for key in ('nodes', 'mode', 'unsupported') if key in status}
+            if summary != previous_summary:
+                # JSON escaping prevents control characters from becoming log lines.
+                LOG.info('Resumo da Mesh: %s', json.dumps(summary, ensure_ascii=True))
+                previous_summary = summary
+
             save(data / 'status.json', status)
             LOG.info('Ciclo %s concluído; próxima consulta em %s segundos. Resumo em /data/status.json.', cycle, interval)
             STOP.wait(interval)

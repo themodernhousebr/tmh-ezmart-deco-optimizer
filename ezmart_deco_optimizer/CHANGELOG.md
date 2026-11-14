@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0-dev.4
+
+- Resumo da Mesh nos logs na primeira consulta e quando mudar: modelos, firmwares, modo reportado e consultas não suportadas.
+- Sem nomes de clientes, IPs, MACs, credenciais ou novas chamadas de rede.
+
 ## 0.2.0-dev.3
 
 - Diagnóstico com horário, ciclo, intervalo carregado, consulta em andamento e espera de cooldown.

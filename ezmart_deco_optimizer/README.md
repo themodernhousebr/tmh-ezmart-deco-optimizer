@@ -29,3 +29,5 @@ Modo AP não é inferido pelo modelo. Não são consultados endpoints WAN/DHCP. 
 6. Repetir para X50 e M9 Plus AP e registrar firmware, modo e resultado sem segredos.
 
 Não há integração automática de entidades nesta fase. /data/status.json é um artefato interno do app.
+
+A partir da dev.4, o resumo de modelos, firmwares e modo também aparece nos logs na primeira consulta e quando mudar.
