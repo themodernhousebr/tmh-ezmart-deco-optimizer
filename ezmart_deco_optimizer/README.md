@@ -1,3 +1,5 @@
+<img src="icon.png" alt="The Modern House" width="128">
+
 # Configuração e homologação
 
 Informe host como IP do Deco principal, username (normalmente admin), password e poll_seconds (900 a 86400). Comece com 900. A inicialização automática está desabilitada nesta versão de desenvolvimento.

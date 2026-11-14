@@ -1,10 +1,12 @@
 # EZmart Home Assistant Apps
 
+<img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
+
 Base de desenvolvimento local do EZmart Deco Optimizer, versão 0.2.0-dev.1.
 
 ## Estado
 
-Somente leitura: lista de nós (modelo e firmware) e modo de operação. Sem otimização, alterações de Wi-Fi, varreduras ACS ou exportação de configuração WLAN. Ainda sem sensores no Home Assistant ou interface web. Nenhum ícone original estava disponível.
+Somente leitura: lista de nós (modelo e firmware) e modo de operação. Sem otimização, alterações de Wi-Fi, varreduras ACS ou exportação de configuração WLAN. Ainda sem sensores no Home Assistant ou interface web. Ícone oficial da The Modern House incluído no app.
 
 Os arquivos run.py 0.1.10 e 0.1.11 não estavam disponíveis na conversa recuperada; esta implementação é nova e precisa ser comparada aos originais quando forem fornecidos.
 
