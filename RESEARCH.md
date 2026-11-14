@@ -48,3 +48,5 @@ Porta 20001 do M9 respondeu SSH-2.0-dropbear no teste do usuário. Foram examina
 
 https://github.com/mthsg/pydeco-tmp/blob/main/src/pydeco/transport.py
 https://github.com/mthsg/pydeco-tmp/blob/main/src/pydeco/opcodes.py
+
+Piloto TMP: identidade, autenticação por senha e ALLOC funcionaram no M9. A leitura inicial sem params retornou api_code 1. O exemplo de consulta de Zoogara inclui params.scan_type [network_quality]; dev.2 incorpora esse seletor somente no opcode de leitura 0x4265. Isso ainda não comprova causa do erro nem suporte à consulta; teste pendente.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0-dev.2
+
+- Inclui seletor network_quality na consulta TMP de resultados, sem iniciar scan.
+- Filtro de logs no handler bloqueia também loggers SSH criados após importação.
+- Piloto confirmou autenticação TMP e resposta com api_code 1 na consulta anterior.
+
 ## 0.4.0-dev.1
 
 - Módulo próprio TMP somente leitura via SSH 20001 e túnel loopback 20002.

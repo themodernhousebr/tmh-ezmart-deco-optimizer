@@ -37,6 +37,10 @@ class TmpTests(unittest.TestCase):
         chan = Channel(frame(body[:10], 0) + frame(body[10:], 10))
         self.assertEqual(tmp.Reader(chan).request(tmp.QUALITY), body)
         self.assertEqual(len(chan.sent), 2)
+        import json
+        sent_body = json.loads(chan.sent[0][36:])
+        self.assertEqual(sent_body['params'], {'scan_type': ['network_quality']})
+        self.assertEqual(struct.unpack_from('>H', chan.sent[0], 18)[0], tmp.QUALITY)
         corrupted = bytearray(frame(body, 0)); corrupted[-1] ^= 1
         with self.assertRaises(tmp.ProtocolError):
             tmp.Reader(Channel(bytes(corrupted))).request(tmp.QUALITY)

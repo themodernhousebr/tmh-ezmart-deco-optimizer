@@ -55,7 +55,10 @@ class Reader:
     def request(self, opcode):
         self.deadline = time.monotonic() + 20
         self.transaction += 1
-        body = b'' if opcode == ALLOC else json.dumps({'config_version': int(time.time()*1000)}, separators=(',', ':')).encode()
+        # The quality-result read requires a network_quality selector.
+        request = {'config_version': int(time.time()*1000),
+                   'params': {'scan_type': ['network_quality']}}
+        body = b'' if opcode == ALLOC else json.dumps(request, separators=(',', ':')).encode()
         self.send(opcode, body)
         result = bytearray()
         expected_total = None

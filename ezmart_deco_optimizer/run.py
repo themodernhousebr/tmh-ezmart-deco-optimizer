@@ -24,6 +24,9 @@ def save(path, value):
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+    # Handler filters also catch child loggers created after SDK imports.
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(lambda record: not record.name.startswith(('paramiko', 'tplink_deco_api')))
     logging.getLogger('tplink_deco_api').disabled = True
     # Disable every SDK logger, including children, before constructing a client.
     from tplink_deco_api import DecoClient
@@ -46,7 +49,7 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.4.0-dev.1; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.4.0-dev.2; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
     probe_results = {}
@@ -82,7 +85,7 @@ def main():
         try:
             cycle += 1
             LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.4.0-dev.1'}
+            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.4.0-dev.2'}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
