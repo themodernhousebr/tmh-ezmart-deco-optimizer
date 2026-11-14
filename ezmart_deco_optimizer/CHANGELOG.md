@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-dev.2
+
+- Classifica erros opcionais por categoria fixa e códigos numéricos, sem texto de exceções.
+- Pesquisa TMP registrada; sem implementar ou executar autenticação SSH, scan ou otimização.
+- Atualização no HAOS pode aguardar consolidação dos próximos testes.
+
 ## 0.3.0-dev.1
 
 - Consolida diagnósticos opcionais ACS, capacidades, canais e desempenho.

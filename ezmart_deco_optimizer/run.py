@@ -7,7 +7,7 @@ from pathlib import Path
 import signal
 import threading
 import time
-from diagnostics import PROBES, probe
+from diagnostics import PROBES, probe, error_summary
 
 COOLDOWN = 900
 STOP = threading.Event()
@@ -46,7 +46,7 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.3.0-dev.1; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.3.0-dev.2; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
     probe_results = {}
@@ -81,7 +81,7 @@ def main():
         try:
             cycle += 1
             LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.3.0-dev.1'}
+            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.3.0-dev.2'}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
@@ -117,8 +117,7 @@ def main():
                     if code in (401, 403) or type(error).__name__ == 'AuthenticationError':
                         raise
                     result = {'state': 'unsupported' if code == 404 else 'error', 'updated_at': int(time.time())}
-                    if type(code) is int:
-                        result['http_status'] = code
+                    result.update(error_summary(error))
                     if code == 404:
                         # Unsupported routes are probed once per process.
                         probe_times[name] = float('inf')

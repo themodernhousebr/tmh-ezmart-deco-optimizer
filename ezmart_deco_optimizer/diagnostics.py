@@ -63,3 +63,21 @@ def project(name, data):
 def probe(client, name):
     path, form = PROBES[name]
     return project(name, client.request(path, form, {'operation': 'read'}))
+
+
+def error_summary(error):
+    """Expose only fixed categories and numeric codes, never exception text."""
+    code = getattr(error, 'status_code', None)
+    api_code = getattr(error, 'error_code', None)
+    name = type(error).__name__
+    categories = {
+        'AuthenticationError': 'authentication', 'TransportError': 'transport',
+        'ApiError': 'api', 'CryptoError': 'crypto', 'ValueError': 'response_format',
+        'TypeError': 'response_format', 'TimeoutError': 'timeout',
+    }
+    out = {'category': categories.get(name, 'unknown')}
+    if type(code) is int:
+        out['http_status'] = code
+    if type(api_code) is int:
+        out['api_code'] = api_code
+    return out

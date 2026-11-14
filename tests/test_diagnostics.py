@@ -31,6 +31,13 @@ class DiagnosticsTests(unittest.TestCase):
             d.probe(client, name)
             self.assertEqual(client.call, (*route, {'operation': 'read'}))
 
+    def test_error_summary_never_exposes_exception_text(self):
+        class ApiError(Exception):
+            error_code = -1
+        error = ApiError('password=secret stok=private')
+        self.assertEqual(d.error_summary(error), {'category': 'api', 'api_code': -1})
+        self.assertEqual(d.error_summary(RuntimeError('secret')), {'category': 'unknown'})
+
     def test_malformed_response_and_nonfinite(self):
         with self.assertRaises(ValueError):
             d.project('acs', ['unexpected'])
