@@ -31,3 +31,20 @@ Fontes:
 - https://github.com/Zoogara/deco-network-optimize/blob/main/deco_tmp.py
 
 As páginas HTTP do SDK descrevem outro transporte. Sua existência no catálogo não garante presença no firmware. Não insistir em variações de HTTP sem evidência.
+
+## Correção do diagnóstico de transporte
+
+A recusa TCP na porta 22 do M9 não descarta SSH/TMP em outra porta. mthsg/pydeco-tmp documenta SSH na porta 20001 e encaminhamento para loopback 20002, além de diferenças no handshake em relação a Zoogara. Não misturar as duas implementações sem validar a variante do equipamento. Próximo teste limitado a TCP 20001 e banner SSH, sem autenticação.
+
+fullo/deco-mcp declara validação no M9 Plus 1.9.1 e distingue formas web e app. Essa observação é coerente com o HTTP 404 do piloto, mas não comprova qual transporte a otimização do M9 usa. Não usar chaves embutidas, exploits, shell ou operações de arquivo; autenticação futura somente com credenciais do proprietário e fluxo comprovado.
+
+Fontes examinadas:
+- https://github.com/mthsg/pydeco-tmp/blob/main/README.md
+- https://github.com/fullo/deco-mcp/blob/main/README.md
+
+## Implementação experimental consolidada
+
+Porta 20001 do M9 respondeu SSH-2.0-dropbear no teste do usuário. Foram examinados src/pydeco/transport.py, client.py e opcodes.py de mthsg/pydeco-tmp: ALLOC e network_quality 0x4265, com framing business-v2 e transporte type-5. Implementação própria limitada a sessão e consulta, sem incorporar registro genérico de writes. Não há garantia de que o M9 use essa variante. Frame checksums, correlação de transação, tamanho máximo, fragmentos e prazo de resposta são verificados. Paramiko 5.1.0 fixado; não instalado no Python do Mac.
+
+https://github.com/mthsg/pydeco-tmp/blob/main/src/pydeco/transport.py
+https://github.com/mthsg/pydeco-tmp/blob/main/src/pydeco/opcodes.py

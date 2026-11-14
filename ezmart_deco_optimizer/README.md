@@ -49,3 +49,25 @@ HAOS 18.4, amd64, Supervisor 2026.11.0. M9 principal AP: três M9Plus 1.9.1, M5 
 3. Se necessário, habilitar canais e desempenho pela configuração e reiniciar, sem rebuild.
 4. Comparar canal atual e indicação ACS, lembrando que ACS read pode ser histórico.
 5. Se ACS retornar 404, investigar diferenças de API local/app antes de propor escrita. Nenhuma tentativa em caminhos arbitrários ou no X50 secundário é automática.
+
+## TMP experimental — 0.4.0-dev.1
+
+No piloto, TCP 22 recusou conexão, mas TCP 20001 respondeu SSH-2.0-dropbear. Isso confirma o serviço SSH, não o protocolo interno ou a autenticação. O transporte implementado segue a variante descrita em mthsg/pydeco-tmp, com ALLOC e leitura 0x4265. O módulo próprio só aceita esses dois códigos; não oferece scan, optimize, shell ou comando arbitrário. Não há fallback automático para outras variantes.
+
+Opções novas, todas disponíveis após um único rebuild:
+- tmp_enabled: false por padrão. Ativar para um teste por execução.
+- tmp_email: e-mail da conta proprietária TP-Link, diferente do usuário admin HTTPS.
+- tmp_password: senha dessa conta, inserida somente na interface do Supervisor.
+- tmp_host_key_sha256: 64 caracteres hexadecimais da chave pública do M9.
+
+Etapa 1: tmp_enabled true e os três campos restantes vazios. Salvar e iniciar/reiniciar. O resultado esperado é host_key_required com host_key_sha256; nenhuma senha é transmitida. Conferir identidade do IP na rede confiável. Esse primeiro contato não é verificação independente da identidade e pode ser comparado a uma leitura da chave por outra ferramenta na mesma rede. Não aceitar troca inesperada de chave.
+
+Etapa 2: preencher a impressão digital observada e conferida, e-mail e senha. Salvar e reiniciar, sem rebuild. O módulo verifica a chave antes de autenticar; divergência bloqueia credenciais. Uma única tentativa de senha por execução, sem fallback para autenticação interativa. Falha de autenticação mantém cooldown separado de 15 minutos em /data/tmp_state.json. Não há tentativas automáticas no mesmo processo. Login confirmado remove cooldown de autenticação; falha posterior de protocolo não implica senha inválida.
+
+Consulta de qualidade não solicita nova varredura: estado pode ser antigo ou inexistente. Não tratar idle ou optimal como prova de medição nova. Chaves SSH antigas/curtas ou algoritmos incompatíveis podem impedir handshake; a versão não reduz controles criptográficos automaticamente. Nesse caso registrar failed/handshake e investigar antes de mudar dependências.
+
+Paramiko é dependência adicional no contêiner, sem instalação no Mac. Logs da biblioteca são suprimidos. Token ALLOC não é registrado nem persistido. Resposta TMP é filtrada para estados fixos e códigos numéricos. Relatórios incluem fase de falha, nunca exceções brutas, e-mail, hash de usuário ou senha.
+
+Testes locais cobrem bloqueio de opcodes de ação, resposta fragmentada, checksum inválido, descarte de campos secretos, ausência de autenticação sem pin e respeito ao cooldown. Teste no M9 e build com as novas dependências ainda pendentes.
+
+Timeout inicial SSH configurável: tmp_timeout_seconds 5–30 (padrão 10). Consultas TMP têm prazo total de 20 segundos por requisição. Roteiro consolidado na raiz do repositório: PILOT.md.

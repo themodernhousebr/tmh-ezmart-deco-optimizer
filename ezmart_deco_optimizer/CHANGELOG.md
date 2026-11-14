@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0-dev.1
+
+- Módulo próprio TMP somente leitura via SSH 20001 e túnel loopback 20002.
+- Descoberta de impressão digital sem senha e verificação antes de autenticar.
+- Uma tentativa por execução, cooldown separado após falha, sem fallback interativo.
+- ALLOC e leitura de qualidade apenas; validação de frames, CRC e fragmentos com limites.
+- Dependência Paramiko 5.1.0; testes locais isolados; build e M9 pendentes.
+
 ## 0.3.0-dev.2
 
 - Classifica erros opcionais por categoria fixa e códigos numéricos, sem texto de exceções.

@@ -46,11 +46,12 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.3.0-dev.2; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.4.0-dev.1; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
     probe_results = {}
     probe_times = {}
+    tmp_attempted = False
     client = None
     disabled = set()
     while not STOP.is_set():
@@ -81,7 +82,7 @@ def main():
         try:
             cycle += 1
             LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.3.0-dev.2'}
+            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.4.0-dev.1'}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
@@ -123,6 +124,13 @@ def main():
                         probe_times[name] = float('inf')
                 probe_results[name] = result
                 LOG.info('Diagnóstico %s: %s', name, json.dumps(result, ensure_ascii=True))
+            if options.get('tmp_enabled', False) and not tmp_attempted:
+                tmp_attempted = True
+                from tmp_readonly import run_probe
+                LOG.info('TMP: teste único de identidade/autenticação e estado; sem scan ou otimização.')
+                tmp_result = run_probe(options, data, save)
+                probe_results['tmp'] = {'updated_at': int(time.time()), **tmp_result}
+                LOG.info('Diagnóstico tmp: %s', json.dumps(probe_results['tmp'], ensure_ascii=True))
             status['diagnostics'] = probe_results
             status['unsupported'] = sorted(disabled)
             summary = {key: status[key] for key in ('nodes', 'mode', 'unsupported') if key in status}

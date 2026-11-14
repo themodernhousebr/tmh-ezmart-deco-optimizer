@@ -1,5 +1,5 @@
 name: EZmart Deco Optimizer
-version: "0.3.0-dev.2"
+version: "0.4.0-dev.1"
 slug: ezmart_deco_optimizer
 description: Diagnóstico Deco somente leitura — versão de desenvolvimento
 arch:
@@ -18,6 +18,11 @@ options:
   diagnose_channels: false
   diagnose_performance: false
   diagnostic_seconds: 0
+  tmp_enabled: false
+  tmp_timeout_seconds: 10
+  tmp_email: ""
+  tmp_password: ""
+  tmp_host_key_sha256: ""
 schema:
   host: str
   username: str
@@ -28,3 +33,8 @@ schema:
   diagnose_channels: bool
   diagnose_performance: bool
   diagnostic_seconds: int(0,86400)
+  tmp_enabled: bool
+  tmp_timeout_seconds: int(5,30)
+  tmp_email: str
+  tmp_password: password
+  tmp_host_key_sha256: str
