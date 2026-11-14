@@ -1,5 +1,5 @@
 name: EZmart Deco Optimizer
-version: "0.2.0-dev.6"
+version: "0.3.0-dev.1"
 slug: ezmart_deco_optimizer
 description: Diagnóstico Deco somente leitura — versão de desenvolvimento
 arch:
@@ -13,8 +13,18 @@ options:
   username: admin
   password: ""
   poll_seconds: 30
+  diagnose_acs: true
+  diagnose_wifi_support: true
+  diagnose_channels: false
+  diagnose_performance: false
+  diagnostic_seconds: 0
 schema:
   host: str
   username: str
   password: password
   poll_seconds: int(30,86400)
+  diagnose_acs: bool
+  diagnose_wifi_support: bool
+  diagnose_channels: bool
+  diagnose_performance: bool
+  diagnostic_seconds: int(0,86400)

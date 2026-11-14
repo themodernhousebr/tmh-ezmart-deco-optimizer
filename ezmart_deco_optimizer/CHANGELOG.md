@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0-dev.1
+
+- Consolida diagnósticos opcionais ACS, capacidades, canais e desempenho.
+- Configuração das consultas e frequência sem alterar código ou reconstruir.
+- Cache dos diagnósticos com data e erros isolados; 404 sem repetição.
+- Projeções estritas para evitar exportação de segredos da resposta WLAN.
+- Pesquisa comparativa de integrações e testes isolados sem acesso ao hardware.
+- Otimização de escrita permanece não implementada.
+
 ## 0.2.0-dev.6
 
 - Uma consulta ACS read por execução, no caminho admin/network_optimize.

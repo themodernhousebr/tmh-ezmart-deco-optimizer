@@ -7,6 +7,7 @@ from pathlib import Path
 import signal
 import threading
 import time
+from diagnostics import PROBES, probe
 
 COOLDOWN = 900
 STOP = threading.Event()
@@ -45,10 +46,11 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.2.0-dev.6; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.3.0-dev.1; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
-    acs_attempted = False
+    probe_results = {}
+    probe_times = {}
     client = None
     disabled = set()
     while not STOP.is_set():
@@ -79,7 +81,7 @@ def main():
         try:
             cycle += 1
             LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': True}
+            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.3.0-dev.1'}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
@@ -99,24 +101,30 @@ def main():
                     ]
                 else:
                     status['mode'] = result.workmode
-            if not acs_attempted:
-                acs_attempted = True
-                LOG.info('ACS: consulta única de leitura em admin/network_optimize.')
+            # Optional probes run serially on the existing session, never in parallel.
+            for name in PROBES:
+                if not options.get('diagnose_' + name, name == 'acs'):
+                    continue
+                every = options.get('diagnostic_seconds', 0)
+                if name in probe_times and (every == 0 or time.monotonic() - probe_times[name] < every):
+                    continue
+                probe_times[name] = time.monotonic()
+                LOG.info('Diagnóstico %s: leitura iniciada.', name)
                 try:
-                    acs = client.request('admin/network_optimize', 'acs_optimize', {'operation': 'read'})
-                    # Never print arbitrary API objects, including recommendation payloads.
-                    allowed = ('need_optimize', 'scan_count', 'optimize_count', 'optimize_time')
-                    safe_acs = {key: acs[key] for key in allowed
-                                if key in acs and type(acs[key]) in (bool, int, float)}
-                    LOG.info('ACS leitura disponível; campos numéricos: %s', json.dumps(safe_acs))
-                    status['acs'] = {'available': True, **safe_acs}
+                    result = {'state': 'available', 'data': probe(client, name), 'updated_at': int(time.time())}
                 except Exception as error:
-                    if getattr(error, 'status_code', None) == 404:
-                        LOG.info('ACS: HTTP 404; recurso indisponível neste caminho e firmware. Sem nova tentativa nesta execução.')
-                        status['acs'] = {'available': False, 'http_status': 404}
-                    else:
-                        LOG.warning('ACS: consulta falhou; sem nova tentativa nesta execução.')
+                    code = getattr(error, 'status_code', None)
+                    if code in (401, 403) or type(error).__name__ == 'AuthenticationError':
                         raise
+                    result = {'state': 'unsupported' if code == 404 else 'error', 'updated_at': int(time.time())}
+                    if type(code) is int:
+                        result['http_status'] = code
+                    if code == 404:
+                        # Unsupported routes are probed once per process.
+                        probe_times[name] = float('inf')
+                probe_results[name] = result
+                LOG.info('Diagnóstico %s: %s', name, json.dumps(result, ensure_ascii=True))
+            status['diagnostics'] = probe_results
             status['unsupported'] = sorted(disabled)
             summary = {key: status[key] for key in ('nodes', 'mode', 'unsupported') if key in status}
             if summary != previous_summary:

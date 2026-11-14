@@ -1,37 +1,51 @@
-<img src="icon.png" alt="The Modern House" width="128">
+# Piloto residencial — 0.3.0-dev.1
 
-# Configuração e homologação
+Aplicativo somente leitura. Não executa scan, apply, otimização automática ou mudanças de canal. O nome Optimizer descreve o objetivo do projeto; o recurso de escrita ainda não foi homologado.
 
-Informe host como IP do Deco principal, username (normalmente admin), password e poll_seconds (30 a 86400). Durante o desenvolvimento, use 30; para operação contínua, recomenda-se 900. O cooldown de autenticação permanece em 900 segundos. A inicialização automática está desabilitada nesta versão de desenvolvimento.
+## Opções
 
-O mesmo cliente e sessão permanecem em memória entre consultas. Tokens e cookies não são gravados. O instante mínimo da próxima autenticação é persistido em /data/state.json durante cada tentativa e após falhas; o prazo é zerado após autenticação confirmada: reiniciar preserva o cooldown de 15 minutos. Restaurar backup ou alterar o relógio pode afetar esse prazo. Sessões entre reinícios exigem nova autenticação após o prazo; serializar chaves não faz parte desta versão.
-
-Uma falha interrompe o ciclo sem reconexão imediata. HTTP 404 desabilita apenas a consulta afetada até reiniciar; não significa senha incorreta. Desde a dev.6, acs_optimize é consultado uma vez por execução em admin/network_optimize, exclusivamente com operation read. Não há endpoints de escrita. Autenticação cria uma sessão administrativa e pode interferir em outra sessão do app Deco.
-
-Logs não incluem respostas, exceções, senha, cookies, tokens, IP, SSID ou nomes de clientes. O resumo local contém somente modelo, firmware e modo reportados, além dos estados de consulta. As opções e backups do Supervisor contêm a senha: trate-os como dados privados. O SDK utiliza HTTPS com validação de certificado desabilitada; operar apenas na rede local confiável.
-
-## Matriz de compatibilidade
-
-| Equipamento | Evidência anterior | Pendente |
+| Opção | Padrão | Função |
 |---|---|---|
-| X50 | Usuário relata autenticação admin funcional; acs_optimize read HTTP 404 | Build, consultas desta versão, estabilidade e sessão concorrente |
-| M9 Plus AP | HTTPS acessível na conversa anterior | Autenticação e todas as consultas, firmware e comportamento em AP |
+| host | vazio | IP do Deco principal; no piloto 192.168.68.4 |
+| username | admin | Usuário administrativo |
+| password | vazio | Preencher apenas no Supervisor |
+| poll_seconds | 30 | Pausa entre ciclos de inventário; mínimo 30, máximo 86400 |
+| diagnose_acs | true | Lê o estado ACS em admin/network_optimize |
+| diagnose_wifi_support | true | Consulta get_support em admin/wireless |
+| diagnose_channels | false | Lê WLAN e retém apenas canais e larguras |
+| diagnose_performance | false | Lê CPU e memória reportadas |
+| diagnostic_seconds | 0 | Zero: diagnósticos uma vez por execução. Outro valor: intervalo mínimo entre diagnósticos |
 
-Modo AP não é inferido pelo modelo. Não são consultados endpoints WAN/DHCP. Modelos e firmwares podem variar na API; 404 é registrado como unsupported.
+Após alterar opções, salvar e reiniciar somente o app; não precisa reconstruir. Reiniciar gera nova autenticação, enquanto os ciclos reutilizam a sessão. Diagnósticos habilitados rodam serialmente após o inventário. Para repetição, prefira diagnostic_seconds >= 300. Para operação prolongada, aumente poll_seconds para 900; a cadência de 30 é para desenvolvimento.
 
-## Teste no HAOS
+HTTP 404 desabilita a consulta opcional até reiniciar. Outros erros opcionais são resumidos sem payloads nem texto da exceção. 401/403 ou AuthenticationError levam ao cooldown. Erros desconhecidos no inventário também levam a cooldown conservador. Não há promessa de reconhecimento de todos os códigos proprietários de sessão inválida.
 
-1. Construir e instalar em ambiente de desenvolvimento.
-2. Configurar credenciais pela interface do Supervisor, nunca no Git.
-3. Iniciar uma vez e conferir logs resumidos.
-4. Aguardar dois ciclos e confirmar reaproveitamento de sessão.
-5. Invalidar a sessão manualmente em teste controlado e verificar pausa de 15 minutos, inclusive após reinício.
-6. Repetir para X50 e M9 Plus AP e registrar firmware, modo e resultado sem segredos.
+## Relatório
 
-Não há integração automática de entidades nesta fase. /data/status.json é um artefato interno do app.
+Os logs incluem horários, ciclo, modelos, firmwares, modo reportado e diagnósticos permitidos. /data/status.json contém o último ciclo e os diagnósticos em cache com sua própria data: um resultado anterior não deve ser confundido com nova medição. Falha do inventário marca o resumo indisponível.
 
-A partir da dev.4, o resumo de modelos, firmwares e modo também aparece nos logs na primeira consulta e quando mudar.
+ACS read pode retornar indicação de necessidade de otimizar, contadores, data e recomendações de canais. Um resultado vazio significa resposta aceita sem campos reconhecidos; não comprova suporte completo. Nenhum scan novo é solicitado. Resultado ACS pode ser antigo. Não inferimos interferência, ganho de velocidade ou qualidade de conexão desses dados.
 
-Na dev.5, login bem-sucedido libera nova autenticação após reinício. Falhas e tentativas interrompidas preservam cooldown de 15 minutos. Um prazo herdado da dev.4 é respeitado, pois não há registro que permita distinguir sucesso de falha.
+## Segurança e sessão
 
-ACS read não dispara otimização nem comprova melhoria de Wi-Fi. A disponibilidade no M9 AP ainda será homologada. Fonte: https://github.com/roquerodrigo/tplink-deco-api/blob/main/docs/endpoints/wireless.md
+A sessão permanece só em memória. O cooldown de 900 segundos é salvo antes da autenticação, zerado após sucesso e renovado após falha. Reiniciar após sucesso não gera espera; interromper login preserva a proteção. Cooldown legado é respeitado. Não apagar o estado para contornar falhas.
+
+O SDK usa HTTPS sem validar o certificado; usar somente em rede local confiável. Configuração e backups do Supervisor contêm a senha. Logs do SDK estão desabilitados; não exportamos SSID, senha, tokens, cookies, nomes de clientes, IPs ou MACs. A consulta WLAN opcional recebe configuração com segredos em memória, mas sua projeção descarta tudo exceto canais e larguras. Não habilitar debug do SDK.
+
+## Instalação e atualização local
+
+Copiar a pasta inteira ezmart_deco_optimizer para /local_apps. Atualizar a loja, instalar/atualizar ou reconstruir uma única vez e aguardar conclusão. Não é necessário desinstalar. Depois, mudanças das opções acima só exigem salvar e reiniciar o app.
+
+O Dockerfile mantém dependências antes do código para permitir cache de camadas. O Supervisor pode remover imagens durante rebuild, e há downloads de imagem e builder; não garantimos redução dos sete minutos. Imagens pré-construídas por arquitetura no GHCR são a etapa futura para acelerar instalações, após autorização de publicação.
+
+## Evidências do piloto
+
+HAOS 18.4, amd64, Supervisor 2026.11.0. M9 principal AP: três M9Plus 1.9.1, M5 1.9.5 e X50 1.11.1 reportados; modo FAP. Na dev.5, três ciclos e reinício após sucesso validados pelo usuário. ACS e diagnósticos adicionais desta versão pendentes de execução no equipamento. Falha real e cooldown ainda não homologados.
+
+## Roteiro desta versão
+
+1. Executar com ACS e capacidades habilitados, diagnostic_seconds 0 e poll_seconds 30.
+2. Confirmar dois ciclos e guardar as linhas de Diagnóstico.
+3. Se necessário, habilitar canais e desempenho pela configuração e reiniciar, sem rebuild.
+4. Comparar canal atual e indicação ACS, lembrando que ACS read pode ser histórico.
+5. Se ACS retornar 404, investigar diferenças de API local/app antes de propor escrita. Nenhuma tentativa em caminhos arbitrários ou no X50 secundário é automática.
