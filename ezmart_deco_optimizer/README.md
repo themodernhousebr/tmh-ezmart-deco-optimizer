@@ -2,7 +2,7 @@
 
 # Configuração e homologação
 
-Informe host como IP do Deco principal, username (normalmente admin), password e poll_seconds (900 a 86400). Comece com 900. A inicialização automática está desabilitada nesta versão de desenvolvimento.
+Informe host como IP do Deco principal, username (normalmente admin), password e poll_seconds (30 a 86400). Durante o desenvolvimento, use 30; para operação contínua, recomenda-se 900. O cooldown de autenticação permanece em 900 segundos. A inicialização automática está desabilitada nesta versão de desenvolvimento.
 
 O mesmo cliente e sessão permanecem em memória entre consultas. Tokens e cookies não são gravados. O instante mínimo da próxima autenticação é persistido em /data/state.json antes de cada tentativa e após falhas: reiniciar preserva o cooldown de 15 minutos. Restaurar backup ou alterar o relógio pode afetar esse prazo. Sessões entre reinícios exigem nova autenticação após o prazo; serializar chaves não faz parte desta versão.
 

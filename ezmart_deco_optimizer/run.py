@@ -36,7 +36,7 @@ def main():
         password = options['password']
         username = options['username']
         interval = options['poll_seconds']
-        if not password or not username or type(interval) is not int or not 900 <= interval <= 86400:
+        if not password or not username or type(interval) is not int or not 30 <= interval <= 86400:
             raise ValueError()
         state = data / 'state.json'
         due = json.loads(state.read_text())['next_login'] if state.exists() else 0
