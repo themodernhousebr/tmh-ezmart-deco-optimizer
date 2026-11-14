@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0-dev.6
+
+- Uma consulta ACS read por execução, no caminho admin/network_optimize.
+- Nenhum scan, apply ou write. HTTP 404 não repete nem invalida a sessão.
+- Logs ACS limitados a quatro campos numéricos/booleanos.
+
 ## 0.2.0-dev.5
 
 - Zera o bloqueio de nova autenticação após login confirmado.
