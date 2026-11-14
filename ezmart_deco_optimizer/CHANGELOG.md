@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0-dev.5
+
+- Zera o bloqueio de nova autenticação após login confirmado.
+- Mantém cooldown após falha, sessão inválida ou tentativa interrompida.
+- Preserva conservadoramente o prazo herdado de versões anteriores.
+
 ## 0.2.0-dev.4
 
 - Resumo da Mesh nos logs na primeira consulta e quando mudar: modelos, firmwares, modo reportado e consultas não suportadas.

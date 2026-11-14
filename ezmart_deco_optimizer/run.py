@@ -45,7 +45,7 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.2.0-dev.4; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.2.0-dev.5; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
     client = None
@@ -65,9 +65,14 @@ def main():
             try:
                 client = DecoClient(host, username, password, timeout=10)
                 client.login()
+                # Clear the in-flight guard only after confirmed authentication.
+                save(state, {'next_login': 0})
+                due = 0
                 LOG.info('Sessão autenticada; diagnóstico somente leitura.')
             except Exception:
                 client = None
+                due = time.time() + COOLDOWN
+                save(state, {'next_login': due})
                 LOG.warning('Autenticação indisponível; nova tentativa após 15 minutos.')
                 continue
         try:
