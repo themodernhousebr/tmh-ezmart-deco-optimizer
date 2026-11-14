@@ -22,7 +22,7 @@ def save(path, value):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format='%(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
     logging.getLogger('tplink_deco_api').disabled = True
     # Disable every SDK logger, including children, before constructing a client.
     from tplink_deco_api import DecoClient
@@ -45,11 +45,15 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
+    LOG.info('Versão 0.2.0-dev.3; intervalo de consultas: %s segundos.', interval)
+    cycle = 0
     client = None
     disabled = set()
     while not STOP.is_set():
         if client is None:
             remaining = max(0, due - time.time())
+            if remaining > 0:
+                LOG.info('Cooldown ativo; próxima autenticação em aproximadamente %s segundos.', int(remaining) + 1)
             if STOP.wait(min(remaining, COOLDOWN)):
                 break
             if remaining > COOLDOWN:
@@ -66,11 +70,14 @@ def main():
                 LOG.warning('Autenticação indisponível; nova tentativa após 15 minutos.')
                 continue
         try:
+            cycle += 1
+            LOG.info('Ciclo %s iniciado.', cycle)
             status = {'updated_at': int(time.time()), 'read_only': True}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
                 try:
+                    LOG.info('Ciclo %s: consultando %s.', cycle, method)
                     result = getattr(client, method)()
                 except Exception as error:
                     if getattr(error, 'status_code', None) == 404:
@@ -87,7 +94,7 @@ def main():
                     status['mode'] = result.workmode
             status['unsupported'] = sorted(disabled)
             save(data / 'status.json', status)
-            LOG.info('Consulta concluída; resultado resumido em /data/status.json.')
+            LOG.info('Ciclo %s concluído; próxima consulta em %s segundos. Resumo em /data/status.json.', cycle, interval)
             STOP.wait(interval)
         except Exception:
             # Unknown errors may represent an invalid session: do not retry immediately.

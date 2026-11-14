@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0-dev.3
+
+- Diagnóstico com horário, ciclo, intervalo carregado, consulta em andamento e espera de cooldown.
+- Sem alteração dos endpoints ou da frequência de autenticação.
+
 ## 0.2.0-dev.2
 
 - Intervalo de consulta configurável a partir de 30 segundos para desenvolvimento.
