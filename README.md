@@ -30,10 +30,10 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, DHCP ativo, atrás do modem | Cenário dos clientes; hardware/firmware ainda não identificados e otimização **não validada** |
+| X50 como roteador principal, DHCP ativo, atrás do modem | Uma unidade identificada como US V1.0; firmware oficial 1.8.0 analisado offline com os mesmos opcodes ACS. Firmware instalado e execução real ainda pendentes; otimização **não validada** |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
-O protocolo de aplicação atual foi identificado no firmware do M9 V2. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar um X50 representativo, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento também depende do firmware e precisa ser conferido.
+O protocolo de aplicação atual foi identificado no firmware do M9 V2; a análise estática do X50 US V1 1.8.0 encontrou o mesmo mapeamento de análise/aplicação, descrito na [pesquisa](RESEARCH.md). O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar um X50 representativo, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento também depende do firmware e precisa ser conferido.
 
 Na 0.8.0-dev.1, o piloto confirmou criação das entidades e envio/conclusão de um pedido de verificação pelo Home Assistant. A revisão dev.2 acrescenta avisos de falha MQTT, empacotamento e exemplos; ainda não foi instalada no HAOS do piloto. Aceite do comando e leituras estáveis não comprovam melhora de interferência, velocidade ou recuperação de uma câmera.
 

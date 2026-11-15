@@ -168,3 +168,23 @@ Referências consultadas: https://www.home-assistant.io/integrations/button.mqtt
 Comandos usam MQTT 5, QoS 0 e sem retenção. A assinatura solicita retainAsPublished e retainHandling 2; comandos retidos ou duplicados e payload de conexão antiga são recusados. A sessão é limpa a cada reconexão e os IDs de aplicação são gerados localmente. O pedido é persistido antes de ficar disponível ao worker único. Reinício não retoma uma fila ou escrita; o cooldown e as reservas do protocolo são preservados. Verificação separada nunca solicita análise/apply. Mensagens de nascimento do HA só provocam novo anúncio de entidades/estado.
 
 Testes incluem servidor MQTT 5 mínimo em loopback e biblioteca Paho real, isolada em /private/tmp, sem tocar Deco ou HA. Isso valida a comunicação com Paho e as propriedades de recepção, não substitui teste com o Mosquitto e a integração HA reais. O código do protocolo de otimização permanece o mesmo validado na 0.7. Blueprint e painel são artefatos para instalação pelo usuário; nenhuma automação real foi criada ou habilitada durante o desenvolvimento.
+
+
+## X50 dos clientes — análise offline de 15/11/2026
+
+Cenário informado: X50 principal em modo roteador, DHCP ativo e modem da operadora a montante. A foto identifica uma unidade **Deco X50 (US), Ver: 1.0**. Firmware instalado ainda desconhecido; não generalizar essa etiqueta para todos os clientes.
+
+Referência baixada da [TP-Link Brasil, X50 V1](https://www.tp-link.com/br/support/download/deco-x50/v1/): **1.8.0 Build 25102213 Rel. 43970**, publicada em 08/12/2025. ZIP SHA-256 `f5891e871865d6213b1a6b05aa4d65051e19a0a37bee0b6550d9033fb4092a12`; binário original `075ed06721207220b722451bf33cbe8ed10f7c981e15bbe71daaa35dcdcb2ea6`.
+
+A assinatura RSA-PSS foi verificada offline com chave pública de verificação presente em firmware oficial. O formato Cloud foi interpretado conforme a [implementação de referência](https://github.com/robbins/tp-link-decrypt/blob/main/src/rsa_verify/rsaVerify.c). Nenhum firmware foi executado/instalado, nenhum equipamento acessado. Downloads, decodificação e arquivos extraídos ficaram em pasta temporária externa às pastas sincronizadas; não integram este repositório.
+
+No `tmpsvr` AArch64, resolvendo relocations de PT_DYNAMIC:
+
+| Offset do registro | Opcode | Controlador | Método | Operação |
+|---|---|---|---|---|
+| 0x1c780 | 0x424F | admin.mobile_app.network_optimize | acs_optimize | read |
+| 0x1c7a8 | 0x4250 | admin.mobile_app.network_optimize | acs_optimize | write |
+
+O controlador Lua mantém resultado da análise e aplicação separados. A aplicação consome a recomendação armazenada e chama `set_best_channel`; há espera mínima interna de 1800 segundos após aplicação. A rotina Wi-Fi também pode reiniciar repacd e alterar largura de 2,4 GHz. Isso reforça compatibilidade de protocolo, **não homologa autenticação, transporte ou aplicação no X50 real**. SHA-256 de tmpsvr: `8bb230007719da1bc309ac1a564c00d3ba24259940225f86046b2e0217e5c197`; controlador: `48755fc546bd6ebca912b70c9bd3202f5ba8b7b20bc9326aaea4c88fc92090ab`.
+
+Antes da etiqueta, também foi examinada a imagem oficial [X50 V3 1.7.0](https://www.tp-link.com/br/support/download/deco-x50/v3/), com rotinas ACS presentes. Essa variante não substitui a V1 identificada. Próxima validação exige firmware instalado e teste controlado no X50 principal; nenhum comando novo foi enviado nesta investigação.
