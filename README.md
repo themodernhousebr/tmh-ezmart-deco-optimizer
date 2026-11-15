@@ -30,7 +30,7 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | Firmware oficial correspondente analisado: comandos ACS presentes, transporte TPAP. No teste do operador, SSH/20001 recusado e TLS 1.3/30001 conectado com certificado identificado como X50. A versão atual do EZmart **não implementa TPAP**; autenticação e otimização ainda não validadas |
+| X50 como roteador principal, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | Firmware oficial correspondente analisado: comandos ACS presentes, transporte TPAP. No teste do operador, SSH/20001 recusado e TLS 1.3/30001 conectado com cadeia do certificado validada. O app atual **não implementa TPAP**; autenticação e otimização ainda não validadas |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
 O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos e a diferença entre a etiqueta V1.0 informada pelo operador e a página oficial V1.30 do build instalado. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar um X50 representativo, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento HTTPS também depende do firmware e precisa ser conferido.
@@ -45,9 +45,21 @@ Na 0.8.0-dev.1, o piloto confirmou criação das entidades e envio/conclusão de
 python3 /tmp/x50_tls_probe.py 192.168.68.1
 ```
 
-Ele faz uma conexão TLS/30001 com prazo total de aproximadamente oito segundos, valida a cadeia com a CA pública extraída do firmware oficial e informa a impressão SHA-256 do certificado do equipamento. Não envia login, mensagens TPAP ou comandos de otimização e não instala a CA no sistema. Não usa descoberta UDP, fallback para SSH ou alterações de compatibilidade.
+Por padrão, ele faz uma conexão TLS/30001 com prazo total de aproximadamente oito segundos, valida a cadeia com a CA pública extraída do firmware oficial e informa a impressão SHA-256 do certificado do equipamento. Nesse modo não envia login, mensagens TPAP ou comandos de otimização e não instala a CA no sistema. Não usa descoberta UDP, fallback para SSH ou alterações de compatibilidade.
 
 `state: tls_verified` significa cadeia aceita e nome de produto `Deco X50(US)` reconhecido. O certificado não identifica o IP privado, por isso `hostname_verified` permanece falso. Na primeira execução não há uma identidade individual previamente fixada; é possível comparar execuções com `--expected-sha256` seguido da impressão anterior. Uma divergência encerra com erro, sem tentativa insegura. `certificate_untrusted` também encerra com erro e mostra apenas o código de validação. Autenticação e otimização continuam marcadas como `not_tested`. Compartilhe a saída JSON; o diagnóstico não exibe MAC, serial, credenciais ou certificados completos.
+
+A revisão 2 do diagnóstico acrescenta uma etapa opcional, ainda experimental:
+
+```sh
+python3 /tmp/x50_tls_probe.py 192.168.68.1 \
+  --expected-sha256 IMPRESSAO_OBTIDA_NESTE_X50 \
+  --pake-parameters
+```
+
+Substitua a impressão pelo `certificate_sha256` da primeira execução nesse X50. O Terminal pede o **e-mail da conta proprietária desse equipamento**, com entrada oculta. Não use a conta de outra instalação; o M9 residencial e o X50 do cliente são ambientes independentes. O e-mail não é argumento de linha de comando, não é salvo e não aparece no relatório; seu SHA-256 é enviado dentro da conexão TLS validada e fixada ao certificado informado.
+
+Esse modo inicia apenas a negociação `pake_register` para uma conta existente e informa os algoritmos e tamanhos recebidos. Não cria conta, pede senha, envia prova de senha, abre canal TMP, solicita análise ou aplica canais. Há somente uma tentativa, com validação de enquadramento, sequência, checksum, tamanho e prazo. `pake_parameters_received` **não confirma login nem a existência da conta**: o firmware pode gerar parâmetros fictícios para usuário desconhecido. O relatório omite salts, nonces, pontos criptográficos, tokens e hashes de conta. Este modo ainda depende de teste físico no X50; não integra o runtime do app e não exige rebuild.
 
 ## Automações e acompanhamento
 
