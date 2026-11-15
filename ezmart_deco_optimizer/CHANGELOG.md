@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0-dev.1
+
+- Incorpora ao app o transporte X50 TPAP/TLS com certificado fixado e autenticação mútua, reutilizando o cliente do diagnóstico físico. Seleção explícita por modelo; transporte e histórico M9 preservados.
+- X50 validado fisicamente no perfil 1.30 / 1.8.4 Build 26051413 Rel. 27460 / Router: aplicação aceita, backhaul 2,4 GHz 10→4, três leituras estáveis, sem falhas, 85,999 s. Fluxo integrado X50/MQTT ainda requer teste no HA do cliente.
+- Mesmos botões e IDs de entidades; sensores X50 rotulados como backhaul, sem inventar dados de CPU/memória ou terceira banda. Poll X50 mínimo 60 s, apenas leitura.
+- Pedidos X50 explícitos, mínimo 30 minutos, reserva durável, verificação sem reaplicação e pausa persistida antes de toda autenticação. Parada durante espera preserva o resultado e não reenvia aplicação.
+- Configuração nova com 10 campos principais; campos manuais, prazos e diagnósticos opcionais. Preserva valores salvos e o modo manual M9. Nenhuma ação X50 na inicialização.
+- Blueprint de repetição reconhece o resultado X50 aceito e estável sem mudança observada, mantendo exigência de ID novo. Não interpreta estabilidade como ganho de desempenho.
+- Acrescenta PyCryptodome 3.23.0 ao pacote; uma atualização/reconstrução para todas as funções. Diagnóstico independente passa a ser baixado de `ezmart_deco_optimizer/x50_tpap.py`; atalho em `tools` exige checkout completo. URLs antigas fixadas em commits permanecem válidas.
+
 ## 0.8.0-dev.2
 
 - Expõe recusas MQTT de autenticação/autorização e falhas de conexão TCP/TLS antes silenciosas, sem mensagens brutas ou credenciais. Limita avisos repetidos a um por minuto. O pacote 0.8.0-dev.1 já distribuído permanece inalterado.

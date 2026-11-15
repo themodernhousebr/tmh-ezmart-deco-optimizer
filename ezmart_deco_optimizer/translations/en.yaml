@@ -1,0 +1,90 @@
+configuration:
+  deco_model:
+    name: Main Deco model
+    description: Select m9_plus for the existing M9 installation, or x50 for the tested X50 1.30 / 1.8.4 Router profile. No automatic transport fallback.
+  host:
+    name: Main Deco IP address
+  tmp_email:
+    name: Deco owner account email
+    description: Use the account for this installation, not an account from another home.
+  tmp_password:
+    name: Deco owner account password
+  password:
+    name: M9 — HTTPS password
+    description: Required for M9 monitoring. Leave empty for X50.
+  tmp_host_key_sha256:
+    name: M9 — verified SSH fingerprint
+    description: Use the fingerprint previously verified for this M9. Leave empty for X50.
+  x50_certificate_sha256:
+    name: X50 — verified certificate fingerprint
+    description: Use certificate_sha256 from this X50 diagnostic. Leave empty for M9. A mismatch blocks connection.
+  tmp_enabled:
+    name: Enable Deco actions
+    description: Required for optimization requests. With MQTT enabled, startup only monitors; it does not optimize.
+  mqtt_enabled:
+    name: Home Assistant entities
+    description: Publishes buttons and sensors over MQTT. Disables the old M9 startup action.
+  mqtt_commands_enabled:
+    name: Accept optimization requests
+    description: Allows Home Assistant buttons and automations to request actions. Disable to keep monitoring only.
+  mqtt_host:
+    name: Advanced — alternative MQTT server
+    description: Leave absent or empty to obtain the Mosquitto connection automatically from Supervisor.
+  mqtt_username:
+    name: Alternative MQTT username
+  mqtt_password:
+    name: Alternative MQTT password
+  mqtt_port:
+    name: Alternative MQTT port
+  mqtt_tls:
+    name: Alternative MQTT TLS
+  request_cooldown_seconds:
+    name: Advanced — minimum request interval
+    description: At least 900 seconds for M9, 1800 for X50, including negative recommendations. Survives restart.
+  poll_seconds:
+    name: Advanced — monitoring interval
+    description: Default 30 seconds for M9, minimum 60 for X50. Monitoring never requests ACS analysis.
+  username:
+    name: M9 advanced — HTTPS username
+    description: Defaults to admin. Ignored for X50.
+  tmp_action:
+    name: M9 manual — startup action without MQTT
+    description: Ignored for X50 and whenever MQTT entities are enabled.
+  tmp_scan_backend:
+    name: M9 advanced — analysis method
+    description: Defaults to m9_acs for new MQTT installations. Ignored for X50.
+  tmp_scan_request_id:
+    name: M9 manual — scan request ID
+    description: Not needed by Home Assistant buttons; IDs are automatic.
+  tmp_optimize_request_id:
+    name: M9 manual — application request ID
+    description: Not needed by Home Assistant buttons; IDs are automatic.
+  tmp_timeout_seconds:
+    name: Advanced — Deco connection timeout
+  tmp_scan_timeout_seconds:
+    name: Advanced — analysis timeout
+  tmp_apply_timeout_seconds:
+    name: Advanced — application response timeout
+    description: A timeout never retries the application command.
+  tmp_verify_timeout_seconds:
+    name: Advanced — verification timeout
+    description: Default 120 seconds. X50 uses at most 300 seconds and six readings.
+  tmp_verify_delay_seconds:
+    name: M9 advanced — delay before verification
+    description: X50 always waits 30 seconds.
+  tmp_verify_interval_seconds:
+    name: M9 advanced — verification reading interval
+    description: X50 always uses 10 seconds.
+  diagnose_acs:
+    name: M9 legacy ACS — disabled
+    description: Kept for compatibility; does not perform periodic analysis.
+  diagnose_wifi_support:
+    name: M9 advanced — read Wi-Fi capabilities
+  diagnose_channels:
+    name: M9 advanced — read channels
+    description: MQTT mode already monitors channels automatically. X50 always reads backhaul.
+  diagnose_performance:
+    name: M9 advanced — read CPU and memory
+    description: This diagnostic is not queried on X50.
+  diagnostic_seconds:
+    name: M9 advanced — diagnostic interval

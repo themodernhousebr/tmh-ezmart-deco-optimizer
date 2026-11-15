@@ -1,4 +1,10 @@
 configuration:
+  deco_model:
+    name: Modelo do Deco principal
+    description: m9_plus mantém o transporte M9. x50 usa TLS e aceita ações apenas no X50 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, modo Router. Não há troca automática de transporte.
+  x50_certificate_sha256:
+    name: X50 — certificado conferido
+    description: Cole o certificate_sha256 obtido no teste deste X50. Deixe vazio no M9. Não é senha; a conexão é bloqueada se o certificado mudar.
   mqtt_enabled:
     name: Entidades no Home Assistant
     description: Publica botões e sensores via MQTT. Quando ativado, o app aguarda pedidos; não executa a ação TMP antiga ao iniciar.
@@ -7,7 +13,7 @@ configuration:
     description: Permite acionar os botões pelo Home Assistant. Desativar mantém o monitoramento e impede novos pedidos.
   request_cooldown_seconds:
     name: Intervalo mínimo entre pedidos
-    description: Mínimo de 900 segundos, inclusive quando a análise não recomenda mudança. O intervalo é preservado após reinício.
+    description: Mínimo de 900 segundos no M9 e 1800 no X50, inclusive quando a análise não recomenda mudança. O intervalo é preservado após reinício.
   mqtt_host:
     name: Servidor MQTT alternativo
     description: Deixe vazio para usar automaticamente o Mosquitto fornecido pelo Supervisor.
@@ -23,40 +29,43 @@ configuration:
   host:
     name: IP do Deco principal
   username:
-    name: Usuário HTTPS do Deco
+    name: M9 — usuário HTTPS (avançado)
+    description: Padrão admin. Ignorado no X50.
   password:
-    name: Senha HTTPS do Deco
+    name: M9 — senha HTTPS
+    description: Necessária para o monitoramento M9. Deixe vazia no X50; ele usa a conta proprietária informada abaixo.
   poll_seconds:
     name: Intervalo do monitoramento
-    description: Pausa após consultar inventário e modo; não agenda otimizações. Pedidos do Home Assistant acordam o app sem esperar esse intervalo.
+    description: Padrão 30 segundos no M9 e mínimo 60 no X50; não agenda otimizações. Pedidos do Home Assistant acordam o app sem esperar esse intervalo.
   diagnose_acs:
-    name: ACS antigo — desativado
+    name: M9 avançado — ACS antigo desativado
     description: Opção mantida por compatibilidade. Não realiza consultas; a análise ACS é uma ação explícita.
   diagnose_wifi_support:
-    name: Consultar capacidades Wi-Fi
+    name: M9 avançado — consultar capacidades Wi-Fi
     description: No M9 do piloto essa consulta retorna erro API 1 e pode ficar desativada.
   diagnose_channels:
     name: Consultar canais
     description: No modo MQTT os canais são acompanhados automaticamente, mesmo com esta opção desativada.
   diagnose_performance:
-    name: Consultar CPU e memória
+    name: M9 avançado — consultar CPU e memória
+    description: Opcional. Este diagnóstico não é consultado no X50.
   diagnostic_seconds:
-    name: Intervalo dos diagnósticos
+    name: M9 avançado — intervalo dos diagnósticos
     description: No modo manual, zero consulta uma vez. No modo MQTT, canais seguem o monitoramento e demais diagnósticos usam no mínimo 60 segundos.
   tmp_enabled:
     name: Habilitar ações do Deco
     description: Necessário para os pedidos de otimização. Não altera o intervalo nem executa otimizações por conta própria no modo MQTT.
   tmp_action:
-    name: Ação ao iniciar — somente sem MQTT
-    description: Ignorada quando Entidades no Home Assistant está ativado. Use os botões para otimizar ou verificar sob demanda.
+    name: M9 manual — ação ao iniciar sem MQTT
+    description: Sempre ignorada no X50. No M9, ignorada quando Entidades no Home Assistant está ativado. Use os botões para otimizar ou verificar sob demanda.
   tmp_scan_backend:
-    name: Método de otimização
-    description: Para o M9 Plus V2 do piloto, selecione m9_acs. O método legacy não permite aplicar otimização.
+    name: M9 avançado — método de otimização
+    description: No modo MQTT novo, o padrão é m9_acs. Ignorado no X50. O método legacy não permite aplicar otimização.
   tmp_scan_request_id:
-    name: ID da análise manual
+    name: M9 manual — ID da análise
     description: Usado apenas com scan no modo sem MQTT. Botões do Home Assistant geram IDs automaticamente.
   tmp_optimize_request_id:
-    name: ID da aplicação manual
+    name: M9 manual — ID da aplicação
     description: Usado apenas com optimize ou verify no modo sem MQTT. Sem espaços. Os botões geram ou recuperam o ID automaticamente.
   tmp_scan_timeout_seconds:
     name: Prazo da análise
@@ -64,17 +73,21 @@ configuration:
     name: Prazo da resposta à aplicação
     description: Timeout nunca causa reenvio automático da aplicação.
   tmp_verify_delay_seconds:
-    name: Espera antes de verificar
+    name: M9 avançado — espera antes de verificar
+    description: No X50 a espera é fixa em 30 segundos.
   tmp_verify_timeout_seconds:
-    name: Prazo da verificação
+    name: Avançado — prazo da verificação
+    description: Padrão 120 segundos. No X50 o máximo efetivo é 300 segundos e seis leituras.
   tmp_verify_interval_seconds:
-    name: Intervalo entre leituras de verificação
+    name: M9 avançado — intervalo entre leituras
+    description: No X50 o intervalo é fixo em 10 segundos.
   tmp_timeout_seconds:
-    name: Prazo da conexão TMP
+    name: Avançado — prazo da conexão Deco
   tmp_email:
     name: E-mail da conta proprietária Deco
+    description: Use a conta desta instalação; não compartilhe a conta entre sua casa e o cliente.
   tmp_password:
     name: Senha da conta proprietária Deco
   tmp_host_key_sha256:
-    name: Impressão digital SSH conferida
-    description: Identidade do Deco previamente validada; não é senha. A conexão é bloqueada se a chave não corresponder.
+    name: M9 — chave SSH conferida
+    description: Deixe vazio no X50. Identidade SSH do M9 previamente validada; não é senha. A conexão é bloqueada se a chave não corresponder.

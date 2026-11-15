@@ -45,7 +45,7 @@ class RetryAutomationTests(unittest.TestCase):
         return result[0]
 
     def test_fresh_ack_and_stable_observation_confirm_with_or_without_channel_change(self):
-        for conclusion in ('acknowledged_with_channel_change', 'acknowledged_without_observed_change'):
+        for conclusion in ('acknowledged_with_channel_change', 'acknowledged_without_observed_change', 'acknowledged_without_observed_channel_change'):
             for request in ('apply_acknowledged', 'verification_only'):
                 with self.subTest(conclusion=conclusion, request=request):
                     self.states.update({RESULT: conclusion, REQUEST: request})

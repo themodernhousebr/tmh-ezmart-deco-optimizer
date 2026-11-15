@@ -69,11 +69,15 @@ ENTITIES = (
 )
 
 
-def discovery(identity, base, version, session):
+def discovery(identity, base, version, session, model='m9_plus'):
     device = {'identifiers': ['ezmart_deco_' + identity], 'name': 'EZmart Deco Optimizer',
               'manufacturer': 'The Modern House', 'model': 'Deco Optimizer — piloto M9 V2', 'sw_version': version}
+    if model == 'x50':
+        device['model'] = 'Deco Optimizer — X50 1.30 / 1.8.4'
     messages = []
     for domain, suffix, field, extra_name, extra in ENTITIES:
+        if model == 'x50' and suffix.startswith('canal_'):
+            extra_name = extra_name.replace('Canal ', 'Canal backhaul ')
         unique = 'ezmart_deco_' + identity + '_' + suffix
         config = {'name': extra_name, 'unique_id': unique, 'default_entity_id': domain + '.ezmart_deco_' + suffix,
                   'device': device, 'availability_topic': base + '/availability', **extra}
@@ -176,7 +180,8 @@ class Bridge:
             return
 
     def publish_discovery(self, client):
-        for topic, value in discovery(self.identity, self.base, self.version, self.session):
+        for topic, value in discovery(self.identity, self.base, self.version, self.session,
+                                      self.options.get('deco_model', 'm9_plus')):
             client.publish(topic, json.dumps(value, ensure_ascii=True), qos=1, retain=True)
 
     def run(self):

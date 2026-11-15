@@ -45,7 +45,7 @@ actions:
         value_template: >-
           {{ is_state('binary_sensor.ezmart_deco_em_execucao', 'off')
              and states('sensor.ezmart_deco_ultimo_pedido') in ['apply_acknowledged', 'verification_only']
-             and states('sensor.ezmart_deco_resultado') in ['acknowledged_with_channel_change', 'acknowledged_without_observed_change']
+             and states('sensor.ezmart_deco_resultado') in ['acknowledged_with_channel_change', 'acknowledged_without_observed_change', 'acknowledged_without_observed_channel_change']
              and state_attr('sensor.ezmart_deco_resultado', 'verification') == 'stable'
              and state_attr('sensor.ezmart_deco_resultado', 'api_code') == 0
              and state_attr('sensor.ezmart_deco_resultado', 'request_id') not in [none, '', relatorio_anterior,
@@ -85,7 +85,7 @@ actions:
         value_template: >-
           {{ is_state('binary_sensor.ezmart_deco_em_execucao', 'off')
              and states('sensor.ezmart_deco_ultimo_pedido') in ['apply_acknowledged', 'verification_only']
-             and states('sensor.ezmart_deco_resultado') in ['acknowledged_with_channel_change', 'acknowledged_without_observed_change']
+             and states('sensor.ezmart_deco_resultado') in ['acknowledged_with_channel_change', 'acknowledged_without_observed_change', 'acknowledged_without_observed_channel_change']
              and state_attr('sensor.ezmart_deco_resultado', 'verification') == 'stable'
              and state_attr('sensor.ezmart_deco_resultado', 'api_code') == 0
              and state_attr('sensor.ezmart_deco_resultado', 'request_id') not in [none, '', relatorio_anterior,

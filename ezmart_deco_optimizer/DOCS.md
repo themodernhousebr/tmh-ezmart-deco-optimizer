@@ -1,6 +1,6 @@
-# EZmart Deco Optimizer — 0.8.0-dev.2
+# EZmart Deco Optimizer — 0.9.0-dev.1
 
-Monitoramento local e otimização manual experimental para M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690. O principal do piloto opera em AP e tem M9, M5 e X50 como secundários. Isso não homologa a otimização com M5 ou X50 como principal.
+Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. Outros perfis X50 e M5 principal não estão validados.
 
 Esta versão reúne análise, aplicação condicional, verificação e recuperação de resultado incerto. A aplicação pode interromper temporariamente o Wi-Fi. Não há otimização automática por intervalo ou ao surgir interferência. O padrão continua `tmp_action: read` e `tmp_enabled: false`.
 
@@ -12,9 +12,43 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Parar o app, copiar a pasta inteira `ezmart_deco_optimizer` do Mac para `/local_apps/ezmart_deco_optimizer` no HAOS via SFTP e atualizar a loja. Usar Atualizar quando a nova versão aparecer; essa operação já constrói a imagem. Se optar por Reconstruir, basta uma reconstrução após copiar. Não fazer os dois em sequência e não desinstalar: preserve opções e histórico.
 
-Incluir todos os módulos, especialmente `m9_actions.py`, `ha_control.py` e `mqtt_bridge.py`. Confirmar `Versão 0.8.0-dev.2` no log. Esta versão acrescenta Paho MQTT 2.1.0; dependências ficam antes do código no Dockerfile para permitir cache. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Incluir todos os módulos, incluindo `x50_tpap.py`, `x50_backend.py`, `m9_actions.py`, `ha_control.py` e `mqtt_bridge.py`. Confirmar `Versão 0.9.0-dev.1` no log. Esta versão acrescenta PyCryptodome 3.23.0 para o X50; dependências ficam antes do código no Dockerfile para permitir cache. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
-## Configurar aplicação manual sem MQTT
+## Configuração diária por modelo
+
+A instalação nova tem 10 campos principais. Não é necessário preencher os campos do outro modelo, nem definir IDs e prazos. Opções antigas permanecem aceitas; configurações já salvas não são removidas automaticamente. Os campos opcionais seguem o [schema do Supervisor](https://developers.home-assistant.io/docs/apps/configuration/#options--schema).
+
+| Campo | M9 Plus V2 | X50 do piloto |
+|---|---|---|
+| `deco_model` | `m9_plus` (padrão; preserva instalação antiga) | `x50` |
+| `host` | IP do M9 principal | IP do X50 principal |
+| `tmp_email`, `tmp_password` | Conta proprietária desta rede | Conta proprietária desta rede; não reutilizar a de outra instalação |
+| `password` | Senha de acesso HTTPS | Vazio; ignorado |
+| `tmp_host_key_sha256` | Chave SSH previamente conferida | Vazio; ignorado |
+| `x50_certificate_sha256` | Vazio; ignorado | `certificate_sha256` conferido no diagnóstico deste X50 |
+| `tmp_enabled` | Ativar para permitir ações | Ativar para permitir ações |
+| `mqtt_enabled` | Ativar para publicar entidades | Ativar para publicar entidades |
+| `mqtt_commands_enabled` | Ativar quando quiser aceitar os botões/automações | Ativar quando quiser aceitar os botões/automações |
+
+O servidor MQTT e suas credenciais são obtidos automaticamente do serviço Mosquitto do Supervisor. Os campos `mqtt_host`, `mqtt_username`, `mqtt_password`, `mqtt_port` e `mqtt_tls` só são necessários para um broker alternativo. Não confundir a conta MQTT com a conta Deco.
+
+No M9 existente, preserve `tmp_scan_backend: m9_acs`. Numa instalação nova com MQTT, ele é o padrão interno quando a opção está ausente. Campos `tmp_action` e IDs só servem para o modo manual M9 abaixo; no X50 são ignorados. O X50 nunca executa otimização na inicialização.
+
+O padrão interno do monitoramento é 30 s no M9 e mínimo 60 s no X50. Para o X50, análise/aplicação/verificação usam 120/60/120 s quando ausentes; a conexão usa 10 s. Verificação tem espera fixa de 30 s, intervalo de 10 s e até seis leituras; `tmp_verify_timeout_seconds` tem máximo efetivo de 300 s. As opções M9 de atraso/intervalo de verificação e diagnóstico HTTPS não se aplicam ao X50.
+
+## Primeiro uso do X50 no Home Assistant
+
+1. Instalar/atualizar o pacote 0.9 uma vez. Selecionar `x50`, IP, conta desta rede e certificado conferido. Ativar MQTT; manter `mqtt_commands_enabled: false` durante a conferência inicial.
+2. Salvar e iniciar. Conferir log X50 TPAP/TLS, inventário, modo Router e sensores **Canal backhaul**. Não devem aparecer análise/aplicação apenas por iniciar ou reconectar MQTT.
+3. A aplicação física do diagnóstico já foi confirmada; não é necessário repetir apenas para produzir outra mudança. Para habilitar futuras ações, ativar `tmp_enabled` e `mqtt_commands_enabled`, salvar e reiniciar o app. A automação pode chamar o mesmo botão Otimizar se necessário usado no M9.
+4. Aguardar pelo menos 30 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
+5. Após uma necessidade real, conferir aceite API 0, verificação stable e ID do novo pedido. Verificar última aplicação observa somente a tentativa registrada **neste app**; antes da primeira aplicação pelo app, fica indisponível.
+
+O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 30 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; não há número de canal host/radio no piloto, nem consulta de CPU/memória pelo novo transporte.
+
+A seção seguinte documenta exclusivamente o modo manual M9, preservado para instalações anteriores.
+
+## Configurar aplicação manual M9 sem MQTT
 
 Manter host, credenciais HTTPS/TMP e impressão digital SSH já conferidos. Fechar a tela de otimização do app Deco durante a rodada. Configurar:
 

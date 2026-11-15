@@ -2,7 +2,7 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.8.0-dev.2 — experimental.** Monitoramento Deco e otimização sob demanda por entidades do Home Assistant. Piloto validado com **M9 Plus V2 principal em modo AP**.
+**0.9.0-dev.1 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Aplicações físicas confirmadas nos dois pilotos; a integração X50/MQTT desta versão ainda precisa ser conferida no HA do cliente.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
@@ -30,16 +30,26 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, hardware informado pelo inventário 1.30, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001, login SPAKE2+, leituras TMP e resposta ACS com recomendação positiva confirmados no equipamento. Aplicação preparada no diagnóstico independente; aplicação física ainda pendente. O app atual **não implementa TPAP** |
+| X50 como roteador principal, hardware informado pelo inventário 1.30, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001, login, leituras, análise e aplicação confirmados fisicamente: backhaul 2,4 GHz de 10 para 4, aceite API 0 e três leituras estáveis. Transporte TPAP incorporado ao app 0.9; validação física dos botões MQTT no cliente ainda pendente |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
-O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos: o inventário autenticado do cliente informou hardware **1.30** para os dois X50, apesar da etiqueta V1.0 anteriormente atribuída à unidade. Isso não implica intercambialidade de revisões. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar a aplicação e integrar o transporte X50 ao app, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento HTTPS também depende do firmware e precisa ser conferido.
+O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos: o inventário autenticado do cliente informou hardware **1.30** para os dois X50, apesar da etiqueta V1.0 anteriormente atribuída à unidade. Isso não implica intercambialidade de revisões. O nome `m9_acs` não é uma promessa de compatibilidade com X50. No X50, selecione `deco_model: x50` e informe seu certificado e conta proprietária. O app usa TPAP/TLS para monitoramento e ações; não tenta SSH nem HTTPS como alternativa. Firmware/hardware/modo diferentes permitem leitura, mas bloqueiam análise e aplicação até validação específica.
 
 Na 0.8.0-dev.1, o piloto confirmou criação das entidades e envio/conclusão de um pedido de verificação pelo Home Assistant. A revisão dev.2 acrescenta avisos de falha MQTT, empacotamento e exemplos; ainda não foi instalada no HAOS do piloto. Aceite do comando e leituras estáveis não comprovam melhora de interferência, velocidade ou recuperação de uma câmera.
 
+### Configuração do app e atualização única
+
+A 0.9 reúne os dois transportes, sensores, aplicação e recuperação. As opções principais são modelo, IP, conta proprietária, identidade do equipamento e habilitação MQTT/comandos. A senha HTTPS e a chave SSH são exclusivas do M9; o certificado é exclusivo do X50. Deixe vazios os campos do outro modelo. O Mosquitto é obtido automaticamente do Supervisor quando nenhum servidor alternativo é informado.
+
+IDs manuais, tempos, diagnóstico e MQTT alternativo são opções avançadas, sem valores obrigatórios em uma instalação nova. O Supervisor preserva valores já salvos numa atualização, portanto eles podem continuar aparecendo no formulário antigo. Não é necessário removê-los nem reconfigurar o M9. Veja a configuração por modelo em [DOCS.md](ezmart_deco_optimizer/DOCS.md).
+
+X50 monitora a cada no mínimo 60 segundos, sem ACS periódico. Cada pedido explícito exige recomendação positiva e reserva persistente; há mínimo de 30 minutos entre pedidos/aplicações. A verificação usa apenas leituras autenticadas. Os sensores numéricos são nomeados **Canal backhaul**; CPU, memória e terceira banda não disponíveis permanecem desconhecidos. Nenhum comando parte da inicialização, mesmo sem MQTT.
+
+O journal do diagnóstico em `/config` não é importado automaticamente pelo app em `/data`. Preserve-o, não execute os dois ao mesmo tempo e aguarde ao menos 30 minutos desde a última aplicação do diagnóstico antes do primeiro pedido pelo app. Uma aplicação do diagnóstico ainda incerta deve ser resolvida pelo próprio diagnóstico antes de habilitar pedidos no app. Não apague históricos para liberar tentativas.
+
 ### Diagnóstico X50 sem rebuild
 
-[tools/x50_tls_probe.py](tools/x50_tls_probe.py) é um diagnóstico independente para o X50 US acima, executado no Terminal/SSH do HA que está na mesma rede. Os modos TLS e parâmetros requerem somente Python 3.9 ou superior; no app Terminal/SSH baseado em Alpine, `apk add --no-cache python3` instala o interpretador. Os modos de login, leitura e análise também requerem PyCryptodome. Depois de baixar o arquivo para `/tmp`:
+[ezmart_deco_optimizer/x50_tpap.py](ezmart_deco_optimizer/x50_tpap.py) contém o cliente compartilhado pelo app e pelo diagnóstico independente. Baixe esse arquivo como `/tmp/x50_tls_probe.py`; `tools/x50_tls_probe.py` é apenas o atalho para um checkout completo. O diagnóstico é para o X50 US acima, executado no Terminal/SSH do HA que está na mesma rede. Os modos TLS e parâmetros requerem somente Python 3.9 ou superior; no app Terminal/SSH baseado em Alpine, `apk add --no-cache python3` instala o interpretador. Os modos de login, leitura e análise também requerem PyCryptodome. Depois de baixar o arquivo para `/tmp`:
 
 ```sh
 python3 /tmp/x50_tls_probe.py 192.168.68.1
@@ -146,7 +156,7 @@ Interpretação do relatório:
 
 `elapsed_seconds` mede a ação completa, incluindo a verificação; `request_session_seconds` e os contadores de mensagens/bytes referem-se à sessão inicial. Uma verificação posterior preserva os horários da ação original e registra `last_verified_at`/`last_verification_seconds`. Os dados de WLAN continuam separados por `radio`, `host` e `backhaul`, sem atribuir leituras ausentes à rede principal.
 
-A aplicação foi validada em simulação, incluindo perda de resposta e falha de gravação, e **aguarda o teste físico no X50**. O app/MQTT segue com o transporte M9 já validado; incorporar TPAP ao app é uma etapa posterior.
+O teste físico da revisão 6 confirmou `acknowledged_with_channel_change` em 85,999 segundos: API 0 na aplicação, três leituras estáveis, nenhuma falha, backhaul 2,4 GHz de 10 para 4 e 5 GHz mantido em 36. As larguras HT40/HT80 foram mantidas. Essa evidência não mede ganho de desempenho nem recuperação de câmeras. A versão 0.9 reutiliza o mesmo código no app; o teste físico de seu fluxo MQTT ainda está pendente.
 
 ## Automações e acompanhamento
 

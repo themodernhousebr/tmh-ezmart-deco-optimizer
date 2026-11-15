@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.8.0-dev.2'
+VERSION = '0.9.0-dev.1'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -32,18 +32,22 @@ def save(path, value):
 
 def startup_action_enabled(options):
     # Migrating an installed manual optimize configuration must never apply at boot.
-    return options.get('tmp_enabled', False) and not options.get('mqtt_enabled', False)
+    return (options.get('deco_model', 'm9_plus') == 'm9_plus'
+            and options.get('tmp_enabled', False) and not options.get('mqtt_enabled', False))
 
 
 def process_job(controller, client, options, data, store=save, stop=STOP):
     job = controller.take()
     if job is None:
         return None
-    from tmp_readonly import run_probe
+    if options.get('deco_model', 'm9_plus') == 'x50':
+        from x50_backend import run_probe
+    else:
+        from tmp_readonly import run_probe
     action_options = dict(options, tmp_action=job['action'], tmp_optimize_request_id=job['request_id'])
     def record(path, value):
         store(path, value)
-        if path.name == 'tmp_optimize_report.json':
+        if path.name in ('tmp_optimize_report.json', 'x50_optimize_report.json'):
             controller.progress(value)
     try:
         result = run_probe(action_options, data, record, channel_snapshot=lambda:
@@ -57,6 +61,9 @@ def process_job(controller, client, options, data, store=save, stop=STOP):
 
 
 def collect(client, options, cycle, disabled, probe_results, probe_times):
+    if options.get('deco_model', 'm9_plus') == 'x50':
+        LOG.info('Ciclo %s: leitura X50 de modo, inventário e backhaul; sem análise ACS.', cycle)
+        return client.collect(cycle, VERSION)
     status = {'updated_at': int(time.time()), 'available': True, 'cycle': cycle, 'version': VERSION}
     status['read_only'] = not (options.get('tmp_enabled', False) and
                                ((options.get('mqtt_enabled', False) and options.get('mqtt_commands_enabled', False)) or
@@ -116,10 +123,24 @@ def main():
     data = Path('/data')
     try:
         options = json.loads((data / 'options.json').read_text())
-        host = str(ipaddress.ip_address(options['host']))
-        password, username, interval = options['password'], options['username'], options['poll_seconds']
-        if not password or not username or type(interval) is not int or not 30 <= interval <= 86400:
+        model = options.get('deco_model', 'm9_plus')
+        if model not in ('m9_plus', 'x50'):
             raise ValueError()
+        host = str(ipaddress.ip_address(options['host']))
+        password, username = options.get('password', ''), options.get('username', 'admin')
+        interval = options.get('poll_seconds', 30)
+        if type(interval) is not int or not 30 <= interval <= 86400:
+            raise ValueError()
+        if model == 'x50':
+            from x50_backend import Client as X50Client, settings
+            settings(options)
+            interval = max(60, interval)
+        elif not password or not username:
+            raise ValueError()
+        options['poll_seconds'] = interval
+        # Old saved options take precedence. New MQTT installations use the M9 ACS method.
+        if options.get('mqtt_enabled', False):
+            options.setdefault('tmp_scan_backend', 'm9_acs')
         state = data / 'state.json'
         due = json.loads(state.read_text())['next_login'] if state.exists() else 0
         from m9_actions import finite_time
@@ -165,12 +186,14 @@ def main():
                 due = time.time() + COOLDOWN
                 save(state, {'next_login': due})
                 try:
-                    client = DecoClient(host, username, password, timeout=10)
+                    client = (X50Client(options, data, save, STOP) if model == 'x50'
+                              else DecoClient(host, username, password, timeout=10))
                     client.login()
                     save(state, {'next_login': 0})
                     due = 0
                     next_poll = 0
-                    LOG.info('Sessão HTTPS autenticada; consultas de monitoramento somente leitura.')
+                    LOG.info('%s autenticado; monitoramento somente leitura.',
+                             'X50 TPAP/TLS' if model == 'x50' else 'HTTPS')
                 except Exception:
                     client = None
                     due = time.time() + COOLDOWN

@@ -23,7 +23,7 @@ def hkdf32(key, salt, info):
 
 
 spec = importlib.util.spec_from_file_location(
-    "x50_tls_probe", Path(__file__).resolve().parents[1] / "tools/x50_tls_probe.py")
+    "x50_tls_probe", Path(__file__).resolve().parents[1] / "ezmart_deco_optimizer/x50_tpap.py")
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
@@ -257,7 +257,8 @@ class AuthenticationProbeTests(unittest.TestCase):
 
     def run_server(self, password=PASSWORD, change_params=None, change_reply=None,
                    pin=PIN, send_error=None, read_info=False, channel_peer=None,
-                   scan_only=False, scan_timeout=120, optimize=False, checkpoint=None, report=None):
+                   scan_only=False, scan_timeout=120, optimize=False, checkpoint=None, report=None,
+                   before_connect=None, login_verified=None):
         """Independent verifier role, replying to each actual framed request.
 
         Never uses the production prover/transcript helpers to build its proof.
@@ -359,7 +360,8 @@ class AuthenticationProbeTests(unittest.TestCase):
             result = probe.probe("192.168.68.1", expected_sha256=pin,
                                  owner_email=self.EMAIL, password=password, read_info=read_info,
                                  scan_only=scan_only, scan_timeout=scan_timeout, optimize=optimize,
-                                 _checkpoint=checkpoint, _report=report)
+                                 _checkpoint=checkpoint, _report=report,
+                                 _before_connect=before_connect, _login_verified=login_verified)
         self.assertEqual(connect.call_count, 1)
         tls.__exit__.assert_called_once()
         for secret in (self.EMAIL, self.PASSWORD, password, "PRIVATE", "dev_confirm", "user_share",
@@ -380,6 +382,21 @@ class AuthenticationProbeTests(unittest.TestCase):
         self.assertEqual(result["application_messages_sent"], 2)
         self.assertEqual(result["application_bytes_sent"], sum(len(c.args[0]) for c in tls.sendall.call_args_list))
         self.assertEqual(len(requests), 2)
+
+    def test_login_guard_hooks_only_release_after_verified_password_proof(self):
+        before, verified = MagicMock(), MagicMock()
+        self.run_server(before_connect=before, login_verified=verified)
+        before.assert_called_once()
+        verified.assert_called_once()
+        verified.reset_mock()
+        self.run_server(password='wrong password', login_verified=verified)
+        verified.assert_not_called()
+        with patch.object(probe.socket, 'create_connection') as connect:
+            def block():
+                raise probe.ProtocolError('authentication_cooldown')
+            result = probe.probe('192.168.68.1', _before_connect=block)
+            self.assertEqual(result['protocol_error'], 'authentication_cooldown')
+            connect.assert_not_called()
 
     def test_wrong_password_is_rejected_once_without_alternative_encoding(self):
         result, tls, _ = self.run_server(password="wrong password")
@@ -1192,6 +1209,25 @@ class ApplyProbeTests(unittest.TestCase):
         self.assertTrue(result["apply_command_attempted"])
         self.assertEqual(self.run_action()["state"], "already_requested")
         self.assertEqual(self.run_action(verify_only=True)["verification"]["state"], "stable")
+        self.assertEqual(sum(ops.count(0x4250) for ops in self.sessions), 1)
+
+    def test_stop_at_durable_reservation_prevents_apply_and_never_replays(self):
+        stopping = [False]
+        def progress(report):
+            if report['apply_command_attempted']:
+                stopping[0] = True
+        result = self.run_action(_progress=progress, _should_stop=lambda: stopping[0])
+        self.assertEqual(result['state'], 'interrupted')
+        self.assertTrue(result['apply_command_attempted'])
+        self.assertTrue(all(0x4250 not in ops for ops in self.sessions))
+        self.assertEqual(self.run_action(request_id='another')['state'], 'previous_apply_unverified')
+
+    def test_stop_during_wait_preserves_ack_without_reapplying(self):
+        result = self.run_action(_wait=lambda _: True)
+        self.assertEqual(result['state'], 'interrupted')
+        self.assertEqual(result['apply_ack']['state'], 'accepted')
+        self.assertEqual(len(self.sessions), 1)
+        self.assertEqual(self.run_action(verify_only=True)['verification']['state'], 'stable')
         self.assertEqual(sum(ops.count(0x4250) for ops in self.sessions), 1)
 
     def test_modes_need_explicit_id_and_low_level_apply_remains_disabled(self):

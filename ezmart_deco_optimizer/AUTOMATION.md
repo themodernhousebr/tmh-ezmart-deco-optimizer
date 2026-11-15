@@ -1,6 +1,8 @@
-# Home Assistant sob demanda — 0.8.0-dev.2
+# Home Assistant sob demanda — 0.9.0-dev.1
 
-O Home Assistant solicita a otimização por um botão MQTT. Não existe agenda de análises ACS nem otimização periódica. Cada pedido aceito faz uma análise e só envia aplicação quando o M9 recomenda mudança. Reiniciar o app ou reconectar o MQTT não cria um pedido.
+O Home Assistant solicita a otimização por um botão MQTT. Não existe agenda de análises ACS nem otimização periódica. Cada pedido aceito faz uma análise e só envia aplicação quando o Deco recomenda mudança. Reiniciar o app ou reconectar o MQTT não cria um pedido.
+
+A configuração mínima do X50 e os campos opcionais estão em [DOCS.md](DOCS.md#configuração-diária-por-modelo). O exemplo abaixo preserva as opções da instalação M9 existente.
 
 ## Uma atualização para todas as funções
 
@@ -34,7 +36,7 @@ Ativar “Iniciar na inicialização” na página do app se quiser manter o ser
 
 ## Entidades disponíveis
 
-Após o log `MQTT conectado`, abrir Configurações → Dispositivos e serviços → MQTT e localizar **EZmart Deco Optimizer**, fabricante The Modern House. São 22 entidades agrupadas no mesmo dispositivo. Os IDs abaixo são sugeridos; Home Assistant pode acrescentar sufixos caso já existam ou preservar nomes que você renomeou.
+Após o log `MQTT conectado`, abrir Configurações → Dispositivos e serviços → MQTT e localizar **EZmart Deco Optimizer**, fabricante The Modern House. No X50 os sensores de canal indicam explicitamente backhaul; CPU, memória e banda 5 GHz 2 ficam desconhecidos quando não disponíveis. São 22 entidades agrupadas no mesmo dispositivo. Os IDs abaixo são sugeridos; Home Assistant pode acrescentar sufixos caso já existam ou preservar nomes que você renomeou.
 
 | Entidade sugerida | Uso |
 |---|---|
@@ -93,9 +95,9 @@ A câmera indisponível é o motivo para pedir análise, não prova de interfer�
 
 O blueprint `examples/camera_until_confirmed.yaml` oferece a política de repetição solicitada para o piloto. Pode ser importado pela URL do arquivo no GitHub. Selecione `camera.cozinha` e confira os IDs padrão das entidades EZmart usados no YAML. Ele funciona com o app **0.8.0-dev.1 já instalado**; importar/editar a automação não exige rebuild.
 
-Após 3 minutos de `unavailable`, aguarda o app ficar disponível e registra os IDs anteriores. Solicita uma análise e eventual aplicação; se houver aplicação pendente de verificação, solicita somente a verificação. Entre tentativas aguarda 15 minutos, além de qualquer bloqueio do app. Não remove bloqueios nem repete o mesmo comando de aplicação.
+Após 3 minutos de `unavailable`, aguarda o app ficar disponível e registra os IDs anteriores. Solicita uma análise e eventual aplicação; se houver aplicação pendente de verificação, solicita somente a verificação. Entre tentativas aguarda 15 minutos, além de qualquer bloqueio do app (no X50, pelo menos 30 minutos entre pedidos optimize). Não remove bloqueios nem repete o mesmo comando de aplicação.
 
-Encerra com sucesso somente quando o relatório e o último pedido têm o mesmo ID novo, o Deco aceitou a aplicação (`api_code: 0`) e a verificação está `stable`. Os resultados aceitos são `acknowledged_with_channel_change` e `acknowledged_without_observed_change`: o segundo confirma aceite e leituras estáveis, **sem afirmar que houve troca de canal ou ganho de desempenho**. Um novo pedido manual concorrente pode satisfazer essa condição; não há exclusividade da automação sobre o dispositivo.
+Encerra com sucesso somente quando o relatório e o último pedido têm o mesmo ID novo, o Deco aceitou a aplicação (`api_code: 0`) e a verificação está `stable`. Os resultados aceitos são `acknowledged_with_channel_change`, `acknowledged_without_observed_change` (M9) e `acknowledged_without_observed_channel_change` (X50): os dois últimos confirmam aceite e leituras estáveis, **sem afirmar que houve troca de canal ou ganho de desempenho**. Um novo pedido manual concorrente pode satisfazer essa condição; não há exclusividade da automação sobre o dispositivo.
 
 `optimization_not_needed`, recusa, timeout, falha de autenticação e resultado antigo **não** encerram como sucesso. Se o firmware nunca recomendar uma aplicação, a execução pode permanecer ativa indefinidamente. Continua mesmo se a câmera se recuperar, até a confirmação ou cancelamento manual. Para cancelar, desligue esta automação. Reiniciar o HA ou recarregar automações interrompe o loop; esta versão não persiste nem retoma uma execução interrompida. Falhas de configuração continuam aparecendo como erro, nunca como sucesso.
 
@@ -103,26 +105,26 @@ Para validar, confira o rastreamento da automação: deve terminar no passo **No
 
 ## Controles de execução e recuperação
 
-- Uma tarefa por vez, executada na mesma sequência que usa a sessão HTTPS. MQTT não acessa o Deco em uma segunda thread.
-- Intervalo mínimo persistido de 900 s entre pedidos optimize, mesmo quando não há recomendação. Configurável até 86400 s. O intervalo de aplicação já existente permanece adicional e não pode ser contornado com outro ID.
+- Uma tarefa por vez, executada na mesma sequência do monitoramento Deco. MQTT não acessa o Deco em uma segunda thread.
+- Intervalo mínimo persistido de 900 s no M9 e 1800 s no X50 entre pedidos optimize, mesmo quando não há recomendação. Configurável até 86400 s. O intervalo de aplicação já existente permanece adicional e não pode ser contornado com outro ID.
 - Uma tarefa aceita precisa começar em até 60 s e com monitoramento disponível; caso contrário, é descartada. Não há fila persistente nem retomada de aplicação após reinício.
 - MQTT 5 com sessão limpa, sem fila de comandos offline, comandos QoS 0 e sem retenção. Mensagens retidas, marcadas como duplicadas ou pertencentes a outra conexão são ignoradas. Não criar automações que publiquem diretamente comandos retidos.
 - A identidade das entidades é persistida em `/data/mqtt_identity.json`. Discovery e estado podem ser retidos; comandos não. Reconexão e o nascimento do Home Assistant republicam entidades/estado, sem pedir otimização.
-- O controle de admissão fica em `/data/automation_state.json`; os relatórios e reservas de aplicação continuam no journal da versão 0.7. Não apagar dados para contornar bloqueios. O histórico de aplicação admite até 1000 IDs e bloqueia ao atingir o limite; não descarta reservas antigas automaticamente.
+- O controle de admissão fica em `/data/automation_state.json`; os relatórios M9 continuam no journal da versão 0.7; X50 usa `/data/x50_optimize_journal.json`. Não apagar dados para contornar bloqueios. O histórico de aplicação admite até 1000 IDs M9 ou 128 IDs X50 e bloqueia ao atingir o limite; não descarta reservas antigas automaticamente.
 - Se houver `previous_apply_unverified`, usar o botão Verificar última aplicação. Não reaplica, funciona durante o intervalo de otimização e exige no mínimo 30 s entre pedidos de verificação.
-- O botão de otimização também respeita a pausa de autenticação TMP (`tmp_auth_cooldown`). A verificação usa somente HTTPS e não depende de nova autenticação TMP.
+- O botão de otimização também respeita a pausa de autenticação TMP (`tmp_auth_cooldown`). No M9, a verificação usa HTTPS e não depende de nova autenticação TMP. No X50, cada leitura usa uma nova sessão TLS/TPAP e também respeita a pausa de autenticação.
 - MQTT indisponível não interrompe o monitoramento HTTPS e não gera uma ação automática ao retornar. O app tenta reconectar e obter novamente as credenciais do serviço sem registrar senhas/tokens.
 
-Para suspender os comandos, desabilitar `mqtt_commands_enabled` e reiniciar somente o app. Para voltar ao modo manual antigo, desabilitar `mqtt_enabled` e conferir primeiro `tmp_action` e seus IDs: nesse modo a ação configurada volta a ser considerada na inicialização.
+Para suspender os comandos, desabilitar `mqtt_commands_enabled` e reiniciar somente o app. Somente no M9, para voltar ao modo manual antigo, desabilitar `mqtt_enabled` e conferir primeiro `tmp_action` e seus IDs: nesse modo a ação configurada volta a ser considerada na inicialização.
 
 ## Validar sem uma otimização desnecessária
 
-1. Conferir versão 0.8.0-dev.2, conexão MQTT e criação do dispositivo/entidades. Nenhuma ação deve iniciar apenas por isso.
+1. Conferir versão 0.9.0-dev.1, conexão MQTT e criação do dispositivo/entidades. Nenhuma ação deve iniciar apenas por isso.
 2. Como o piloto já tem m9-opt-001 aplicado, pressionar **Verificar última aplicação**. Acompanhar Em execução e Último resultado. Esse teste apenas observa canais e não chama ACS/aplicação.
 3. Conferir canais e horário de monitoramento; comparar com o relatório do app. Um resultado reconhecido da ação anterior continua com sua incerteza original, se houver.
 4. Configurar a automação escolhendo as entidades reais. Deixar a próxima necessidade real acionar Otimizar se necessário. Para um teste deliberado do botão, considerar que ele pode aplicar uma recomendação positiva e interromper temporariamente o Wi-Fi.
 5. Enviar o log MQTT e a linha `Pedido Home Assistant concluído`, sem opções/credenciais. Não é necessário exportar todos os tópicos do broker.
 
-A 0.7 já teve aplicação física validada: canal 149→157 e continuidade do monitoramento. A 0.8 preserva esse protocolo; os novos caminhos de MQTT/HA têm testes locais e de comunicação MQTT 5 em loopback, sem acesso ao Deco. O piloto confirmou a criação das entidades e a conclusão de um pedido verification_only via Home Assistant na 0.8.0-dev.1. A automação de câmera e a revisão dev.2 ainda precisam ser executadas nesse HAOS. X50/M5 como principal não estão homologados para aplicação.
+A 0.7 já teve aplicação física validada: canal 149→157 e continuidade do monitoramento. A 0.8 preserva esse protocolo; os novos caminhos de MQTT/HA têm testes locais e de comunicação MQTT 5 em loopback, sem acesso ao Deco. O piloto confirmou a criação das entidades e a conclusão de um pedido verification_only via Home Assistant na 0.8.0-dev.1. A automação de câmera e a revisão dev.2 ainda precisam ser executadas nesse HAOS. O X50 1.30/1.8.4 Router teve aplicação física confirmada pelo diagnóstico, com backhaul 2,4 GHz 10→4 e três leituras estáveis. O uso do novo transporte pelos botões MQTT no HA do cliente ainda está pendente. M5 e outros perfis X50 não estão validados.
 
 Referências oficiais: [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery), [botão MQTT](https://www.home-assistant.io/integrations/button.mqtt/), [serviço MQTT do Supervisor](https://contributors.home-assistant.io/apps/guides/services-discovery/), [blueprints](https://www.home-assistant.io/docs/blueprint/schema/).

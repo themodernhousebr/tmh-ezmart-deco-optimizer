@@ -1,5 +1,5 @@
 name: EZmart Deco Optimizer
-version: "0.8.0-dev.2"
+version: "0.9.0-dev.1"
 slug: ezmart_deco_optimizer
 url: https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer
 description: Otimização Deco sob demanda e entidades para automações Home Assistant
@@ -12,66 +12,47 @@ init: false
 services:
   - mqtt:want
 options:
-  mqtt_enabled: false
-  mqtt_commands_enabled: false
-  request_cooldown_seconds: 900
-  mqtt_host: ""
-  mqtt_port: 1883
-  mqtt_username: ""
-  mqtt_password: ""
-  mqtt_tls: false
+  deco_model: m9_plus
   host: ""
-  username: admin
-  password: ""
-  poll_seconds: 30
-  diagnose_acs: false
-  diagnose_wifi_support: true
-  diagnose_channels: false
-  diagnose_performance: false
-  diagnostic_seconds: 0
-  tmp_action: read
-  tmp_scan_backend: legacy
-  tmp_scan_request_id: ""
-  tmp_scan_timeout_seconds: 90
-  tmp_optimize_request_id: ""
-  tmp_apply_timeout_seconds: 60
-  tmp_verify_delay_seconds: 30
-  tmp_verify_timeout_seconds: 120
-  tmp_verify_interval_seconds: 10
-  tmp_enabled: false
-  tmp_timeout_seconds: 10
   tmp_email: ""
   tmp_password: ""
+  password: ""
   tmp_host_key_sha256: ""
+  x50_certificate_sha256: ""
+  tmp_enabled: false
+  mqtt_enabled: false
+  mqtt_commands_enabled: false
 schema:
-  mqtt_enabled: bool
-  mqtt_commands_enabled: bool
-  request_cooldown_seconds: int(900,86400)
-  mqtt_host: str
-  mqtt_port: port
-  mqtt_username: str
-  mqtt_password: password
-  mqtt_tls: bool
+  deco_model: list(m9_plus|x50)
   host: str
-  username: str
-  password: password
-  poll_seconds: int(30,86400)
-  diagnose_acs: bool
-  diagnose_wifi_support: bool
-  diagnose_channels: bool
-  diagnose_performance: bool
-  diagnostic_seconds: int(0,86400)
-  tmp_action: list(read|scan|optimize|verify)
-  tmp_scan_backend: list(legacy|m9_acs)
-  tmp_scan_request_id: str
-  tmp_scan_timeout_seconds: int(30,180)
-  tmp_optimize_request_id: str
-  tmp_apply_timeout_seconds: int(10,180)
-  tmp_verify_delay_seconds: int(5,180)
-  tmp_verify_timeout_seconds: int(30,600)
-  tmp_verify_interval_seconds: int(5,60)
-  tmp_enabled: bool
-  tmp_timeout_seconds: int(5,30)
   tmp_email: str
   tmp_password: password
+  password: password
   tmp_host_key_sha256: str
+  x50_certificate_sha256: str
+  tmp_enabled: bool
+  mqtt_enabled: bool
+  mqtt_commands_enabled: bool
+  request_cooldown_seconds: int(900,86400)?
+  mqtt_host: str?
+  mqtt_port: port?
+  mqtt_username: str?
+  mqtt_password: password?
+  mqtt_tls: bool?
+  username: str?
+  poll_seconds: int(30,86400)?
+  diagnose_acs: bool?
+  diagnose_wifi_support: bool?
+  diagnose_channels: bool?
+  diagnose_performance: bool?
+  diagnostic_seconds: int(0,86400)?
+  tmp_action: list(read|scan|optimize|verify)?
+  tmp_scan_backend: list(legacy|m9_acs)?
+  tmp_scan_request_id: str?
+  tmp_scan_timeout_seconds: int(30,180)?
+  tmp_optimize_request_id: str?
+  tmp_apply_timeout_seconds: int(10,180)?
+  tmp_verify_delay_seconds: int(5,180)?
+  tmp_verify_timeout_seconds: int(30,600)?
+  tmp_verify_interval_seconds: int(5,60)?
+  tmp_timeout_seconds: int(5,30)?
