@@ -23,3 +23,7 @@ Resultado contém before/after de qualidade, horários, aceite da ação e chann
 
 Atualizar a imagem é necessário uma vez. As rodadas read/scan, ID e timeout passam a ser controladas pela configuração. Não desinstalar, pois isso pode remover o histórico de ações.
 
+
+## Atualização de evidência — M9 V2
+
+O scan legado 0x4263 retornou -4104 e a análise offline identificou o ramo de suporte desabilitado que gera essa resposta. Não repetir varreduras desse caminho com novos IDs. Manter tmp_action read, sem interpretar optimal como veredito da tela oficial. A implementação alternativa network_optimize exige mapeamento adicional; nenhum rebuild novo foi preparado apenas por essa descoberta.

@@ -52,3 +52,28 @@ https://github.com/mthsg/pydeco-tmp/blob/main/src/pydeco/opcodes.py
 Piloto TMP: identidade, autenticação por senha e ALLOC funcionaram no M9. A leitura inicial sem params retornou api_code 1. O exemplo de consulta de Zoogara inclui params.scan_type [network_quality]; dev.2 incorpora esse seletor somente no opcode de leitura 0x4265. Isso ainda não comprova causa do erro nem suporte à consulta; teste pendente.
 
 Piloto 0.5: envio de scan foi classificado scan_rejected, mas a versão não exportou o error_code da resposta. Não concluir incompatibilidade de scan com base nessa classificação: ela também abrangia ausência do campo. Diagnóstico corrigido localmente para separar recusa numérica de formato desconhecido, sem nova tentativa no equipamento. Usuário usa iPhone/iPad; observar tela e fluxo oficial antes de propor captura de tráfego cifrado ou nova chamada.
+
+## Recusa de varredura no M9 — 15/11/2026
+
+Piloto dev.2: opcode 0x4263 com params.scan_type network_quality recebeu error_code -4104. Não foi encontrada definição confiável do código nas buscas públicas; não classificá-lo como credenciais inválidas, falta de permissão ou ausência da função sem evidência adicional.
+
+O catálogo atualizado de mthsg/pydeco-tmp nomeia 0x4263/0x4264 AVIRA_SCAN_START_SET/STOP_SET e associa tanto network_quality quanto network_security. O grupo não está comprovado como equivalente à tela iOS de interferência por bandas. Hipótese: há uma rotina específica de rádio distinta, ou requisitos/contexto ausentes; precisa de análise de firmware/app. A leitura 0x4265 optimal não deve ser apresentada como garantia de pouca interferência.
+
+O catálogo HTTP de fullo/deco-mcp, validado no M9 1.9.1, não contém comandos de scan/ACS/optimization. Isso não prova inexistência no dispositivo; limita apenas essa referência.
+
+Próximo dado necessário: versão de hardware do M9 principal para selecionar firmware público correto e inspecioná-lo offline. Nenhuma alteração de firmware, shell no Deco ou nova varredura foi realizada nesta investigação.
+
+## Análise offline do firmware M9 V2 — evidência direta
+
+Hardware confirmado pelo usuário: V2. Imagem pública oficial: M9Plus_2.0_2.20_en_1.9.1 Build 20250612 Rel. 45690_US_JP_EU_TW_CA_up.bin, 25.003.702 bytes, SHA-256 8a8116039866820cf99814cd529b5deac7e40616f75697883ccaef7be8c6fef2.
+
+Página de origem: https://www.tp-link.com/us/support/download/deco-m9-plus/v2/
+Arquivo público: https://static.tp-link.com/upload/firmware/2025/202507/20250729/M9Plus_2.0_2.20_1.9.1%20Build%2020250612%20Rel.%2045690.zip
+
+Extração somente local: reconstrução dos volumes UBI e leitura do SquashFS. Nenhum firmware ou ferramenta foi executado no Deco. Firmware e bibliotecas de análise ficam em work/, excluído do Git.
+
+Bytecode Lua 5.1 da imagem foi inspecionado com parser local, incluindo a extensão de constantes inteiras do firmware. Em luci/model/avira.lua, tmp_scan_start (linhas originais 4225–4338) verifica wireless.is_wlan_optimize_support() no ramo network_quality. O ramo negativo emite don't support wlan_optimize e retorna false com o upvalue 8. A ligação da closure usa o registro 40 da função principal, carregado com a constante -4104. Isso estabelece a origem desse código nesta rotina do firmware, coerente com o teste no piloto.
+
+luci/model/wireless.lua implementa essa verificação consultando wireless.wlan_optimize_support no perfil. Não extrair daí a conclusão de ausência de toda otimização: existe outra implementação em luci/controller/admin/mobile_app/network_optimize.lua, com acs_optimize read/write e arquivos /tmp/network_optimize_scan_in_progress, /tmp/network_optimize_set_in_progress e /tmp/network_optimize_item; a rotina Avira usa /tmp/wlan_optimize_*.
+
+A leitura genérica 0x4265 pode produzir estado default sem demonstrar equivalência com o fluxo oficial de interferência. A rota web HTTPS já testada retornou 404, apesar da presença do controlador mobile_app no firmware. Pendência técnica: mapear como o dispatcher do aplicativo e a tabela de opcodes alcançam o controlador network_optimize. Não tentar 0x4266, que pertence ao mesmo caminho legado recusado, nem alterar perfis de suporte no equipamento.
