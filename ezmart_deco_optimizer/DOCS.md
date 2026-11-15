@@ -1,101 +1,136 @@
-# Varredura manual — 0.5.0-dev.1
+# EZmart Deco Optimizer — 0.8.0-dev.2
 
-Esta versão amplia o piloto autorizado: permite iniciar uma varredura de qualidade, além das leituras. Não envia aplicação de canais (0x4266), nem oferece otimização automática. As seções antigas descrevem o histórico de desenvolvimento; este roteiro prevalece para a varredura.
+Monitoramento local e otimização manual experimental para M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690. O principal do piloto opera em AP e tem M9, M5 e X50 como secundários. Isso não homologa a otimização com M5 ou X50 como principal.
 
-Após copiar a pasta inteira e atualizar uma vez, mantenha credenciais e chave TMP já validadas. Opções novas:
+Esta versão reúne análise, aplicação condicional, verificação e recuperação de resultado incerto. A aplicação pode interromper temporariamente o Wi-Fi. Não há otimização automática por intervalo ou ao surgir interferência. O padrão continua `tmp_action: read` e `tmp_enabled: false`.
+
+## Home Assistant e automações
+
+A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de acompanhamento. Consulte [AUTOMATION.md](AUTOMATION.md) para configurar tudo em uma atualização, instalar o modelo para câmeras e adicionar o cartão de painel. Com mqtt_enabled true, a ação TMP de inicialização descrita abaixo é desativada; pedidos passam a vir dos botões e não exigem reinício. Não há otimização periódica.
+
+## Instalar uma vez
+
+Parar o app, copiar a pasta inteira `ezmart_deco_optimizer` do Mac para `/local_apps/ezmart_deco_optimizer` no HAOS via SFTP e atualizar a loja. Usar Atualizar quando a nova versão aparecer; essa operação já constrói a imagem. Se optar por Reconstruir, basta uma reconstrução após copiar. Não fazer os dois em sequência e não desinstalar: preserve opções e histórico.
+
+Incluir todos os módulos, especialmente `m9_actions.py`, `ha_control.py` e `mqtt_bridge.py`. Confirmar `Versão 0.8.0-dev.2` no log. Esta versão acrescenta Paho MQTT 2.1.0; dependências ficam antes do código no Dockerfile para permitir cache. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+
+## Configurar aplicação manual sem MQTT
+
+Manter host, credenciais HTTPS/TMP e impressão digital SSH já conferidos. Fechar a tela de otimização do app Deco durante a rodada. Configurar:
 
 ```yaml
+diagnose_acs: false
 tmp_enabled: true
-tmp_action: scan
-tmp_scan_request_id: piloto-001
-tmp_scan_timeout_seconds: 90
+tmp_scan_backend: m9_acs
+tmp_action: optimize
+tmp_optimize_request_id: m9-opt-001
+tmp_scan_timeout_seconds: 120
+tmp_apply_timeout_seconds: 60
+tmp_verify_delay_seconds: 30
+tmp_verify_timeout_seconds: 120
+tmp_verify_interval_seconds: 10
 ```
 
-Salvar e iniciar/reiniciar somente o app. Isso autoriza uma única varredura para o ID informado. Não mudar o ID para repetir enquanto houver resultado incerto ou operação ainda ativa. A varredura é uma ação ativa no rádio, embora não aplique canais explicitamente.
+Salvar e iniciar/reiniciar apenas o EZmart Deco Optimizer. Não reiniciar HAOS, Proxmox ou Deco. A ação roda uma vez por processo e por ID persistido, não a cada `poll_seconds`.
 
-Para leitura passiva: tmp_action read. Para outra varredura deliberada, após a anterior terminar, escolher outro ID (letras, números, hífen ou underscore, máximo 48 caracteres), salvar e reiniciar; não precisa rebuild. Nenhum agendamento ou repetição automática está habilitado.
+O modo optimize envia uma análise M9, exige resposta reconhecida com `need_optimize: true` e `optimize_item.channel: true`, observa os canais e só então envia uma única aplicação. Se não houver recomendação, termina em `optimization_not_needed`. Não força canais nem aplica um resultado antigo do journal. A nova análise ainda pode receber cache do próprio firmware; não há identificador de coleta para eliminar essa incerteza.
 
-O identificador é salvo ANTES de enviar a ação. Reutilizar o ID retorna already_requested com o relatório anterior. Falha ou interrupção após envio não gera reenvio automático. Não apagar tmp_scan_journal.json para contornar isso. O histórico retém até 1000 IDs e depois bloqueia novas ações.
+Antes de enviar aplicação, o ID e a reserva são sincronizados em disco. Uma queda de conexão ou reinício não provoca reenvio, nem quando a resposta se perde. O mesmo ID devolve `already_requested` antes de autenticar via TMP. Outro ID fica bloqueado se uma tentativa anterior não tiver verificação concluída ou ainda estiver dentro de 900 segundos. O registro associa ID, IP e identidade SSH; reutilizar ID em outro alvo é recusado. Uma trava local impede duas aplicações/verificações simultâneas no mesmo diretório de dados.
 
-O teste lê o estado antes e só inicia se idle. Observa respostas por até tmp_scan_timeout_seconds (30–180) mais eventual requisição em andamento, de até 20 segundos. scan_finished significa que scanning/checking foi observado antes de idle. idle_after_ack significa que o comando foi aceito e a consulta seguinte já retornou idle: pode ter sido rápido ou o resultado pode ser antigo; não comprova uma medição nova. scan_timeout e scan_outcome_uncertain exigem conferir o app oficial e consultar estado, sem repetir automaticamente.
+## Verificação e recuperação
 
-Resultado contém before/after de qualidade, horários, aceite da ação e channels_applied false (nenhum comando de aplicação foi enviado; isso não é medição independente de canais). Relatório local /data/tmp_scan_report.json. Estado não equivale a melhora real de desempenho. Enviar apenas linhas Diagnóstico tmp para análise.
+Após resposta ou timeout da aplicação, aguarda-se `tmp_verify_delay_seconds`. Em seguida, o app consulta canais via HTTPS na sessão existente, sem novo scan, login TMP ou aplicação. Três leituras consecutivas iguais, contendo todas as bandas anteriormente observadas, concluem a verificação como `stable`. Uma leitura incompleta ou indisponível reinicia a contagem. São preservados os contadores e a última observação filtrada.
 
-Atualizar a imagem é necessário uma vez. As rodadas read/scan, ID e timeout passam a ser controladas pela configuração. Não desinstalar, pois isso pode remover o histórico de ações.
+Essa verificação mede apenas os canais reportados pelo principal, não a interferência, a velocidade ou a conectividade de todos os secundários. O próximo ciclo normal consulta o inventário. Não se chama ACS novamente para “confirmar”, pois essa chamada pode iniciar outra análise e o firmware suprime recomendações por 1800 segundos após aplicação.
 
+Se a aplicação perder a resposta, se o app for interrompido ou se a leitura HTTPS não se recuperar, manter o ID e mudar:
 
----
+```yaml
+tmp_action: verify
+tmp_optimize_request_id: m9-opt-001
+```
 
-# Piloto residencial — 0.3.0-dev.1
+Salvar e reiniciar o app. `verify` retoma somente observações HTTPS a partir do registro persistido; não abre SSH/TMP e não reenvia comandos. É permitido durante o cooldown de aplicação. Se a sessão HTTPS anterior expirou, o reinício permite autenticar novamente, respeitando o cooldown de autenticação. Os prazos podem ser ampliados nas opções sem rebuild. Resultado ausente ou registro inválido bloqueia a operação; não apagar arquivos para contornar o bloqueio.
 
-Aplicativo somente leitura. Não executa scan, apply, otimização automática ou mudanças de canal. O nome Optimizer descreve o objetivo do projeto; o recurso de escrita ainda não foi homologado.
+Após concluir, voltar a `tmp_action: read` ou `tmp_enabled: false`. Outra otimização deliberada exige um ID novo, análise positiva, verificação anterior concluída e intervalo mínimo de 15 minutos desde a última tentativa de aplicação. Não alterar o ID para tratar um resultado incerto.
+
+## Relatórios de aplicação
+
+| Campo / estado | Significado |
+|---|---|
+| optimization_not_needed | Análise válida sem recomendação; nenhuma aplicação enviada |
+| preflight_failed | Análise recusada, desconhecida ou sem resposta; não aplica |
+| baseline_unavailable | Não foi possível observar canais antes da aplicação; não aplica |
+| apply_command_attempted | Reserva persistida para tentativa de envio; true não comprova entrega ao dispositivo |
+| apply_acknowledged | Resposta com error_code inteiro igual a zero |
+| apply_rejected | Resposta com código numérico de recusa; não tenta outro comando |
+| apply_outcome_uncertain / apply_dispatch_uncertain | Resposta ausente/desconhecida ou processo interrompido; usar verify, sem reaplicar |
+| verification.state: stable | Três observações completas consecutivas com os mesmos canais |
+| acknowledged_with_channel_change | Aceite recebido e mudança observada; não comprova melhoria de desempenho |
+| acknowledged_without_observed_change | Aceite recebido, sem mudança de canal observada |
+| unconfirmed_with_channel_change / unconfirmed_without_observed_change | Observação concluída, mas sem aceite reconhecido; preservar incerteza |
+| verification_incomplete | Observações interrompidas ou prazo esgotado; usar verify com o mesmo ID |
+| previous_apply_unverified | Há tentativa anterior sem observação concluída; verify com previous_request_id |
+| apply_cooldown | Espera entre tentativas, inclusive com IDs diferentes |
+| action_storage_or_state_error / invalid_optimize_journal | Falha de persistência ou registro inválido; sem repetição automática |
+| target_mismatch | ID pertence a outro IP ou identidade SSH |
+
+Uma recusa explícita continua `apply_rejected` mesmo que outra causa altere canais durante a observação. Metadados `shape` descrevem apenas tipos e presença de campos, sem respostas brutas. Não há estado que afirme ganho de velocidade.
+
+Arquivos internos do app:
+
+- `/data/status.json`: último ciclo e diagnósticos, cada um com seu horário.
+- `/data/tmp_optimize_report.json`: última ação de aplicação/verificação.
+- `/data/tmp_optimize_journal.json`: histórico persistente, até 1000 IDs, com reservas e resultados.
+- `/data/tmp_scan_report.json` e `/data/tmp_scan_journal.json`: análise manual isolada, histórico separado.
+
+Esse `/data` pertence ao contêiner do EZmart, não ao Terminal & SSH. Para validar o piloto, enviar a linha `Diagnóstico tmp` dos logs. Não enviar `options.json`, senhas, e-mail ou tokens.
+
+## Demais modos
+
+`tmp_action: scan` com `tmp_scan_backend: m9_acs` e um `tmp_scan_request_id` exclusivo envia apenas uma análise `0x424F`, nunca aplicação. O prazo vale para a resposta completa, inclusive fragmentos. Não há polling dessa operação ativa. `scan_response_received` indica formato reconhecido; `fresh_scan_confirmed: false` e `result_may_be_cached: true` mantêm explícitos os limites do firmware. `estimated_apply_seconds` vem da estimativa do dispositivo, não é a duração da análise nem uma contagem regressiva para aplicar.
+
+`tmp_action: read` lê somente o estado legado `0x4265`, identificado como `legacy_network_quality`, sem equivalência com a tela de otimização oficial. O scan legado `0x4263` foi recusado com -4104 no M9 do piloto; não repeti-lo nesse equipamento. O backend legacy é mantido para pesquisa em outros equipamentos, sem homologação adicional, e não permite optimize/verify. O comando legado de aplicação `0x4266` continua bloqueado.
+
+A opção `diagnose_acs` é aceita por compatibilidade, mas não faz requisições: o nome read não garante ausência de ações. Se habilitada, o log informa `disabled_active_operation`.
 
 ## Opções
 
 | Opção | Padrão | Função |
 |---|---|---|
-| host | vazio | IP do Deco principal; no piloto 192.168.68.4 |
-| username | admin | Usuário administrativo |
-| password | vazio | Preencher apenas no Supervisor |
-| poll_seconds | 30 | Pausa entre ciclos de inventário; mínimo 30, máximo 86400 |
-| diagnose_acs | true | Lê o estado ACS em admin/network_optimize |
-| diagnose_wifi_support | true | Consulta get_support em admin/wireless |
-| diagnose_channels | false | Lê WLAN e retém apenas canais e larguras |
-| diagnose_performance | false | Lê CPU e memória reportadas |
-| diagnostic_seconds | 0 | Zero: diagnósticos uma vez por execução. Outro valor: intervalo mínimo entre diagnósticos |
+| host | vazio | IP do principal |
+| username / password | admin / vazio | Login HTTPS, preenchido no Supervisor |
+| poll_seconds | 30 | Pausa após cada ciclo de inventário; 30–86400. Usar 900 para operação prolongada |
+| diagnose_acs | false | Obsoleta: aceita, mas não faz chamadas |
+| diagnose_wifi_support | true | Capacidades Wi-Fi; no piloto retorna erro API 1 |
+| diagnose_channels / diagnose_performance | false | Diagnósticos de canais e CPU/memória |
+| diagnostic_seconds | 0 | Zero: diagnósticos uma vez por processo. Para repetir, prefira 300 ou mais |
+| tmp_enabled | false | Habilita a ação TMP selecionada ou a verificação HTTPS |
+| tmp_action | read | read, scan, optimize ou verify; uma ação por execução do app |
+| tmp_scan_backend | legacy | Para o M9 do piloto, selecionar m9_acs explicitamente |
+| tmp_scan_request_id | vazio | ID de análise isolada; não usado em optimize/verify |
+| tmp_optimize_request_id | vazio | ID de aplicação; manter o mesmo para verify. Ambos os IDs: 1–48 letras, números, hífens ou underscores |
+| tmp_scan_timeout_seconds | 90 | Prazo da resposta de análise M9, 30–180 s |
+| tmp_apply_timeout_seconds | 60 | Prazo da resposta à aplicação, 10–180 s. Timeout nunca provoca reenvio |
+| tmp_verify_delay_seconds | 30 | Espera antes da observação, 5–180 s |
+| tmp_verify_timeout_seconds | 120 | Janela de observação após a espera, 30–600 s; requisição já em curso pode acrescentar seu próprio timeout |
+| tmp_verify_interval_seconds | 10 | Pausa entre observações, 5–60 s. A janela precisa comportar pelo menos dois intervalos |
+| tmp_timeout_seconds | 10 | Conexão/autenticação SSH, 5–30 s |
+| tmp_email / tmp_password | vazio | Conta proprietária TP-Link, distinta do admin HTTPS |
+| tmp_host_key_sha256 | vazio | SHA-256 hexadecimal, 64 caracteres, da chave SSH conferida |
 
-Após alterar opções, salvar e reiniciar somente o app; não precisa reconstruir. Reiniciar gera nova autenticação, enquanto os ciclos reutilizam a sessão. Diagnósticos habilitados rodam serialmente após o inventário. Para repetição, prefira diagnostic_seconds >= 300. Para operação prolongada, aumente poll_seconds para 900; a cadência de 30 é para desenvolvimento.
+## Sessão e privacidade
 
-HTTP 404 desabilita a consulta opcional até reiniciar. Outros erros opcionais são resumidos sem payloads nem texto da exceção. 401/403 ou AuthenticationError levam ao cooldown. Erros desconhecidos no inventário também levam a cooldown conservador. Não há promessa de reconhecimento de todos os códigos proprietários de sessão inválida.
+A sessão HTTPS é reutilizada em memória. Cooldown de autenticação de 900 segundos é persistido antes do login e removido após sucesso. Falhas conhecidas de transporte preservam a sessão; falhas de autenticação e erros desconhecidos impõem pausa. Reinício após autenticação bem-sucedida não exige 15 minutos. O cooldown de aplicação é separado de `poll_seconds` e dos controles de autenticação.
 
-## Relatório
+TMP usa SSH 20001 com túnel para 127.0.0.1:20002, sem shell. Nos modos read/scan, a primeira conexão sem impressão digital apenas informa a chave pública, sem transmitir senha. Conferir a identidade em rede confiável e configurar a chave antes da autenticação. Optimize exige uma impressão digital válida já configurada. Mudança da chave bloqueia credenciais. Há uma única tentativa de senha, sem fallback interativo; cooldown TMP separado após falha. Token ALLOC é descartado.
 
-Os logs incluem horários, ciclo, modelos, firmwares, modo reportado e diagnósticos permitidos. /data/status.json contém o último ciclo e os diagnósticos em cache com sua própria data: um resultado anterior não deve ser confundido com nova medição. Falha do inventário marca o resumo indisponível.
+Logs e relatórios não incluem respostas brutas, exceções, senhas, e-mail, tokens ou identificadores de clientes. Canais são projetados por lista fixa; o vínculo com o alvo usa hash interno. O SDK HTTPS não valida o certificado, portanto usar em rede local confiável. Credenciais nas opções e backups do Supervisor são privadas. Dependências rodam no contêiner, sem instalar o SDK no Mac.
 
-ACS read pode retornar indicação de necessidade de otimizar, contadores, data e recomendações de canais. Um resultado vazio significa resposta aceita sem campos reconhecidos; não comprova suporte completo. Nenhum scan novo é solicitado. Resultado ACS pode ser antigo. Não inferimos interferência, ganho de velocidade ou qualidade de conexão desses dados.
+## Validação e limites
 
-## Segurança e sessão
+O caminho ACS foi identificado por análise offline do firmware oficial correspondente ao M9 V2. A 0.6 foi construída no HAOS e recebeu `api_code: 0`, `need_optimize: false` em 26,842 segundos, com canais 9/36/149 inalterados. O app Deco, cerca de três minutos depois, mostrou “Perfeito”, canais 9/36 e aproximadamente 27 segundos. Isso valida uma rodada de análise, não aplicação nem ganho de desempenho.
 
-A sessão permanece só em memória. O cooldown de 900 segundos é salvo antes da autenticação, zerado após sucesso e renovado após falha. Reiniciar após sucesso não gera espera; interromper login preserva a proteção. Cooldown legado é respeitado. Não apagar o estado para contornar falhas.
+A 0.7 tem 50 testes locais de envio único, recusa, perda de resposta, interrupção, journal, concorrência, observação parcial, retomada e ausência de segredos nos relatórios. Em 15/11/2026, a execução no HAOS foi confirmada pelo log do piloto. A ação m9-opt-001 recebeu recomendação positiva em 26,385 segundos e aceite da aplicação (API 0) em 14,214 segundos. A banda 5_2 passou de 149 para 157; três leituras posteriores concordaram, sem falhas. As bandas 2,4 GHz e 5_1 permaneceram em 9 e 36; larguras e canais de backhaul reportados não mudaram. Conclusão: acknowledged_with_channel_change. Esta execução valida aceite e mudança observada no principal, sem comprovar ganho de velocidade/interferência ou saúde de todos os secundários. Recuperação de resposta perdida e bloqueio de repetição permanecem cobertos por simulação, sem teste físico específico.
 
-O SDK usa HTTPS sem validar o certificado; usar somente em rede local confiável. Configuração e backups do Supervisor contêm a senha. Logs do SDK estão desabilitados; não exportamos SSID, senha, tokens, cookies, nomes de clientes, IPs ou MACs. A consulta WLAN opcional recebe configuração com segredos em memória, mas sua projeção descarta tudo exceto canais e larguras. Não habilitar debug do SDK.
-
-## Instalação e atualização local
-
-Copiar a pasta inteira ezmart_deco_optimizer para /local_apps. Atualizar a loja, instalar/atualizar ou reconstruir uma única vez e aguardar conclusão. Não é necessário desinstalar. Depois, mudanças das opções acima só exigem salvar e reiniciar o app.
-
-O Dockerfile mantém dependências antes do código para permitir cache de camadas. O Supervisor pode remover imagens durante rebuild, e há downloads de imagem e builder; não garantimos redução dos sete minutos. Imagens pré-construídas por arquitetura no GHCR são a etapa futura para acelerar instalações, após autorização de publicação.
-
-## Evidências do piloto
-
-HAOS 18.4, amd64, Supervisor 2026.11.0. M9 principal AP: três M9Plus 1.9.1, M5 1.9.5 e X50 1.11.1 reportados; modo FAP. Na dev.5, três ciclos e reinício após sucesso validados pelo usuário. ACS e diagnósticos adicionais desta versão pendentes de execução no equipamento. Falha real e cooldown ainda não homologados.
-
-## Roteiro desta versão
-
-1. Executar com ACS e capacidades habilitados, diagnostic_seconds 0 e poll_seconds 30.
-2. Confirmar dois ciclos e guardar as linhas de Diagnóstico.
-3. Se necessário, habilitar canais e desempenho pela configuração e reiniciar, sem rebuild.
-4. Comparar canal atual e indicação ACS, lembrando que ACS read pode ser histórico.
-5. Se ACS retornar 404, investigar diferenças de API local/app antes de propor escrita. Nenhuma tentativa em caminhos arbitrários ou no X50 secundário é automática.
-
-## TMP experimental — 0.4.0-dev.1
-
-No piloto, TCP 22 recusou conexão, mas TCP 20001 respondeu SSH-2.0-dropbear. Isso confirma o serviço SSH, não o protocolo interno ou a autenticação. O transporte implementado segue a variante descrita em mthsg/pydeco-tmp, com ALLOC e leitura 0x4265. O módulo próprio só aceita esses dois códigos; não oferece scan, optimize, shell ou comando arbitrário. Não há fallback automático para outras variantes.
-
-Opções novas, todas disponíveis após um único rebuild:
-- tmp_enabled: false por padrão. Ativar para um teste por execução.
-- tmp_email: e-mail da conta proprietária TP-Link, diferente do usuário admin HTTPS.
-- tmp_password: senha dessa conta, inserida somente na interface do Supervisor.
-- tmp_host_key_sha256: 64 caracteres hexadecimais da chave pública do M9.
-
-Etapa 1: tmp_enabled true e os três campos restantes vazios. Salvar e iniciar/reiniciar. O resultado esperado é host_key_required com host_key_sha256; nenhuma senha é transmitida. Conferir identidade do IP na rede confiável. Esse primeiro contato não é verificação independente da identidade e pode ser comparado a uma leitura da chave por outra ferramenta na mesma rede. Não aceitar troca inesperada de chave.
-
-Etapa 2: preencher a impressão digital observada e conferida, e-mail e senha. Salvar e reiniciar, sem rebuild. O módulo verifica a chave antes de autenticar; divergência bloqueia credenciais. Uma única tentativa de senha por execução, sem fallback para autenticação interativa. Falha de autenticação mantém cooldown separado de 15 minutos em /data/tmp_state.json. Não há tentativas automáticas no mesmo processo. Login confirmado remove cooldown de autenticação; falha posterior de protocolo não implica senha inválida.
-
-Consulta de qualidade não solicita nova varredura: estado pode ser antigo ou inexistente. Não tratar idle ou optimal como prova de medição nova. Chaves SSH antigas/curtas ou algoritmos incompatíveis podem impedir handshake; a versão não reduz controles criptográficos automaticamente. Nesse caso registrar failed/handshake e investigar antes de mudar dependências.
-
-Paramiko é dependência adicional no contêiner, sem instalação no Mac. Logs da biblioteca são suprimidos. Token ALLOC não é registrado nem persistido. Resposta TMP é filtrada para estados fixos e códigos numéricos. Relatórios incluem fase de falha, nunca exceções brutas, e-mail, hash de usuário ou senha.
-
-Testes locais cobrem bloqueio de opcodes de ação, resposta fragmentada, checksum inválido, descarte de campos secretos, ausência de autenticação sem pin e respeito ao cooldown. Teste no M9 e build com as novas dependências ainda pendentes.
-
-Timeout inicial SSH configurável: tmp_timeout_seconds 5–30 (padrão 10). Consultas TMP têm prazo total de 20 segundos por requisição. Roteiro consolidado na raiz do repositório: PILOT.md.
+Há entidades MQTT e acionamento por automações na 0.8, descritos em AUTOMATION.md. Não há painel web próprio nem otimizações agendadas pelo app. Instalação por repositório personalizado e limites de compatibilidade estão no README do repositório. Esta distribuição usa construção local pelo Supervisor; imagens GHCR não são publicadas nesta revisão.

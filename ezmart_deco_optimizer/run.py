@@ -1,4 +1,4 @@
-"""EZmart read-only diagnostics. Never log SDK payloads or exceptions."""
+"""Monitoring plus event-driven HA actions. No periodic optimization."""
 import ipaddress
 import json
 import logging
@@ -9,6 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
+VERSION = '0.8.0-dev.2'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -18,146 +19,218 @@ def save(path, value):
     temporary = path.with_suffix('.tmp')
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, 'w') as stream:
-        json.dump(value, stream)
+        json.dump(value, stream, allow_nan=False)
+        stream.flush()
+        os.fsync(stream.fileno())
     temporary.replace(path)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def startup_action_enabled(options):
+    # Migrating an installed manual optimize configuration must never apply at boot.
+    return options.get('tmp_enabled', False) and not options.get('mqtt_enabled', False)
+
+
+def process_job(controller, client, options, data, store=save, stop=STOP):
+    job = controller.take()
+    if job is None:
+        return None
+    from tmp_readonly import run_probe
+    action_options = dict(options, tmp_action=job['action'], tmp_optimize_request_id=job['request_id'])
+    def record(path, value):
+        store(path, value)
+        if path.name == 'tmp_optimize_report.json':
+            controller.progress(value)
+    try:
+        result = run_probe(action_options, data, record, channel_snapshot=lambda:
+                           client.request('admin/wireless', 'wlan', {'operation': 'read'}),
+                           should_stop=stop.is_set, wait=stop.wait)
+    except Exception:
+        result = {'state': 'action_failed_no_replay'}
+    controller.finish(result)
+    LOG.info('Pedido Home Assistant concluído: %s', json.dumps(result, ensure_ascii=True))
+    return result
+
+
+def collect(client, options, cycle, disabled, probe_results, probe_times):
+    status = {'updated_at': int(time.time()), 'available': True, 'cycle': cycle, 'version': VERSION}
+    status['read_only'] = not (options.get('tmp_enabled', False) and
+                               ((options.get('mqtt_enabled', False) and options.get('mqtt_commands_enabled', False)) or
+                                (not options.get('mqtt_enabled', False) and options.get('tmp_action') in ('scan', 'optimize'))))
+    LOG.info('Ciclo %s iniciado.', cycle)
+    for method in ('get_device_list', 'get_device_mode'):
+        if method in disabled:
+            continue
+        try:
+            LOG.info('Ciclo %s: consultando %s.', cycle, method)
+            result = getattr(client, method)()
+        except Exception as error:
+            if getattr(error, 'status_code', None) == 404:
+                disabled.add(method)
+                status[method] = 'unsupported'
+                continue
+            raise
+        if method == 'get_device_list':
+            status['nodes'] = [{'model': item.device_model, 'firmware': item.software_ver} for item in result]
+        else:
+            status['mode'] = result.workmode
+    for name in PROBES:
+        if not (options.get('diagnose_' + name, False) or (options.get('mqtt_enabled', False) and name == 'channels')):
+            continue
+        every = options.get('diagnostic_seconds', 0)
+        if options.get('mqtt_enabled', False):
+            every = options.get('poll_seconds', 30) if name == 'channels' else max(60, every)
+        if name in probe_times and (every == 0 or time.monotonic() - probe_times[name] < every):
+            continue
+        probe_times[name] = time.monotonic()
+        LOG.info('Diagnóstico %s: leitura iniciada.', name)
+        try:
+            result = {'state': 'available', 'data': probe(client, name), 'updated_at': int(time.time())}
+        except Exception as error:
+            code = getattr(error, 'status_code', None)
+            if code in (401, 403) or type(error).__name__ == 'AuthenticationError':
+                raise
+            result = {'state': 'unsupported' if code == 404 else 'error', 'updated_at': int(time.time())}
+            result.update(error_summary(error))
+            if code == 404:
+                probe_times[name] = float('inf')
+        probe_results[name] = result
+        LOG.info('Diagnóstico %s: %s', name, json.dumps(result, ensure_ascii=True))
+    status['diagnostics'] = dict(probe_results)
+    status['unsupported'] = sorted(disabled)
+    return status
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
-    # Handler filters also catch child loggers created after SDK imports.
     for handler in logging.getLogger().handlers:
-        handler.addFilter(lambda record: not record.name.startswith(('paramiko', 'tplink_deco_api')))
-    logging.getLogger('tplink_deco_api').disabled = True
-    # Disable every SDK logger, including children, before constructing a client.
+        handler.addFilter(lambda record: not record.name.startswith(('paramiko', 'tplink_deco_api', 'paho')))
     from tplink_deco_api import DecoClient
-    for name in list(logging.Logger.manager.loggerDict):
+    for name in list(logging.Logger.manager.loggerDict) + ['tplink_deco_api']:
         if name.startswith('tplink_deco_api'):
             logging.getLogger(name).disabled = True
     data = Path('/data')
     try:
         options = json.loads((data / 'options.json').read_text())
         host = str(ipaddress.ip_address(options['host']))
-        password = options['password']
-        username = options['username']
-        interval = options['poll_seconds']
+        password, username, interval = options['password'], options['username'], options['poll_seconds']
         if not password or not username or type(interval) is not int or not 30 <= interval <= 86400:
             raise ValueError()
         state = data / 'state.json'
         due = json.loads(state.read_text())['next_login'] if state.exists() else 0
-        if not isinstance(due, (int, float)):
+        from m9_actions import finite_time
+        if not finite_time(due):
             raise ValueError()
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.5.0-dev.2; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão %s; intervalo de consultas: %s segundos.', VERSION, interval)
+    controller = bridge = None
+    if options.get('mqtt_enabled', False):
+        try:
+            from ha_control import Controller
+            from mqtt_bridge import Bridge
+            controller = Controller(options, data, save)
+            bridge = Bridge(options, data, save, controller, STOP, VERSION)
+            bridge.start()
+            LOG.info('Modo Home Assistant: aguardando pedidos explícitos; ação TMP de inicialização desativada.')
+        except Exception:
+            LOG.error('Não foi possível iniciar integração MQTT; nenhum comando de otimização será executado.')
+            return 1
     cycle = 0
     previous_summary = None
-    probe_results = {}
-    probe_times = {}
-    tmp_attempted = False
-    client = None
-    disabled = set()
-    while not STOP.is_set():
-        if client is None:
-            remaining = max(0, due - time.time())
-            if remaining > 0:
-                LOG.info('Cooldown ativo; próxima autenticação em aproximadamente %s segundos.', int(remaining) + 1)
-            if STOP.wait(min(remaining, COOLDOWN)):
-                break
-            if remaining > COOLDOWN:
-                continue
-            # Persist before login: restarting cannot bypass the login cooldown.
-            due = time.time() + COOLDOWN
-            save(state, {'next_login': due})
-            try:
-                client = DecoClient(host, username, password, timeout=10)
-                client.login()
-                # Clear the in-flight guard only after confirmed authentication.
-                save(state, {'next_login': 0})
-                due = 0
-                LOG.info('Sessão HTTPS autenticada; consultas de monitoramento somente leitura.')
-            except Exception:
-                client = None
+    probe_results, probe_times = {}, {}
+    if options.get('diagnose_acs', False):
+        probe_results['acs'] = {'state': 'disabled_active_operation', 'updated_at': int(time.time())}
+        LOG.info('ACS automático desativado: a operação read pode iniciar varredura.')
+    tmp_attempted, client, disabled, next_poll = False, None, set(), 0
+    cooldown_logged = False
+    try:
+        while not STOP.is_set():
+            if client is None:
+                remaining = max(0, due - time.time())
+                if remaining > 0:
+                    if controller:
+                        controller.set_monitor({}, False)
+                    if not cooldown_logged:
+                        LOG.info('Cooldown ativo; próxima autenticação em aproximadamente %s segundos.', int(remaining) + 1)
+                        cooldown_logged = True
+                    STOP.wait(min(remaining, 1))
+                    continue
+                cooldown_logged = False
                 due = time.time() + COOLDOWN
                 save(state, {'next_login': due})
-                LOG.warning('Autenticação indisponível; nova tentativa após 15 minutos.')
-                continue
-        try:
-            cycle += 1
-            LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': options.get('tmp_action', 'read') == 'read', 'available': True, 'cycle': cycle, 'version': '0.5.0-dev.2'}
-            for method in ('get_device_list', 'get_device_mode'):
-                if method in disabled:
-                    continue
                 try:
-                    LOG.info('Ciclo %s: consultando %s.', cycle, method)
-                    result = getattr(client, method)()
-                except Exception as error:
-                    if getattr(error, 'status_code', None) == 404:
-                        disabled.add(method)
-                        status[method] = 'unsupported'
-                        continue
-                    raise
-                if method == 'get_device_list':
-                    status['nodes'] = [
-                        {'model': item.device_model, 'firmware': item.software_ver}
-                        for item in result
-                    ]
-                else:
-                    status['mode'] = result.workmode
-            # Optional probes run serially on the existing session, never in parallel.
-            for name in PROBES:
-                if not options.get('diagnose_' + name, name == 'acs'):
+                    client = DecoClient(host, username, password, timeout=10)
+                    client.login()
+                    save(state, {'next_login': 0})
+                    due = 0
+                    next_poll = 0
+                    LOG.info('Sessão HTTPS autenticada; consultas de monitoramento somente leitura.')
+                except Exception:
+                    client = None
+                    due = time.time() + COOLDOWN
+                    save(state, {'next_login': due})
+                    LOG.warning('Autenticação indisponível; nova tentativa após 15 minutos.')
                     continue
-                every = options.get('diagnostic_seconds', 0)
-                if name in probe_times and (every == 0 or time.monotonic() - probe_times[name] < every):
-                    continue
-                probe_times[name] = time.monotonic()
-                LOG.info('Diagnóstico %s: leitura iniciada.', name)
-                try:
-                    result = {'state': 'available', 'data': probe(client, name), 'updated_at': int(time.time())}
-                except Exception as error:
-                    code = getattr(error, 'status_code', None)
-                    if code in (401, 403) or type(error).__name__ == 'AuthenticationError':
-                        raise
-                    result = {'state': 'unsupported' if code == 404 else 'error', 'updated_at': int(time.time())}
-                    result.update(error_summary(error))
-                    if code == 404:
-                        # Unsupported routes are probed once per process.
-                        probe_times[name] = float('inf')
-                probe_results[name] = result
-                LOG.info('Diagnóstico %s: %s', name, json.dumps(result, ensure_ascii=True))
-            if options.get('tmp_enabled', False) and not tmp_attempted:
-                tmp_attempted = True
-                from tmp_readonly import run_probe
-                LOG.info('TMP: sessão manual; ação configurada=%s; aplicação de canais bloqueada.', options.get('tmp_action', 'read'))
-                tmp_result = run_probe(options, data, save)
-                probe_results['tmp'] = {'updated_at': int(time.time()), **tmp_result}
-                LOG.info('Diagnóstico tmp: %s', json.dumps(probe_results['tmp'], ensure_ascii=True))
-            status['diagnostics'] = probe_results
-            status['unsupported'] = sorted(disabled)
-            summary = {key: status[key] for key in ('nodes', 'mode', 'unsupported') if key in status}
-            if summary != previous_summary:
-                # JSON escaping prevents control characters from becoming log lines.
-                LOG.info('Resumo da Mesh: %s', json.dumps(summary, ensure_ascii=True))
-                previous_summary = summary
-
-            save(data / 'status.json', status)
-            LOG.info('Ciclo %s concluído; próxima consulta em %s segundos. Resumo em /data/status.json.', cycle, interval)
-            STOP.wait(interval)
-        except Exception as error:
-            LOG.warning('Falha de consulta: %s', json.dumps(error_summary(error)))
-            if transient_transport(error):
+            try:
+                if time.monotonic() >= next_poll:
+                    cycle += 1
+                    status = collect(client, options, cycle, disabled, probe_results, probe_times)
+                    if startup_action_enabled(options) and not tmp_attempted:
+                        tmp_attempted = True
+                        from tmp_readonly import run_probe
+                        result = run_probe(options, data, save, channel_snapshot=lambda:
+                                           client.request('admin/wireless', 'wlan', {'operation': 'read'}),
+                                           should_stop=STOP.is_set, wait=STOP.wait)
+                        probe_results['tmp'] = {'updated_at': int(time.time()), **result}
+                        status['diagnostics'] = dict(probe_results)
+                        LOG.info('Diagnóstico tmp: %s', json.dumps(probe_results['tmp'], ensure_ascii=True))
+                    summary = {key: status[key] for key in ('nodes', 'mode', 'unsupported') if key in status}
+                    if summary != previous_summary:
+                        LOG.info('Resumo da Mesh: %s', json.dumps(summary, ensure_ascii=True))
+                        previous_summary = summary
+                    save(data / 'status.json', status)
+                    if controller:
+                        controller.set_monitor(status, 'nodes' in status and 'mode' in status)
+                    LOG.info('Ciclo %s concluído; próxima consulta em %s segundos. Resumo em /data/status.json.', cycle, interval)
+                    next_poll = time.monotonic() + interval
+                if controller and controller.pending:
+                    if STOP.is_set():
+                        break
+                    result = process_job(controller, client, options, data)
+                    if result is not None:
+                        probe_results['tmp'] = {'updated_at': int(time.time()), **result}
+                        next_poll = 0  # Fresh inventory after the action, not the pre-action snapshot.
+            except Exception as error:
+                LOG.warning('Falha de consulta: %s', json.dumps(error_summary(error)))
+                if controller:
+                    controller.set_monitor({}, False)
                 save(data / 'status.json', {'updated_at': int(time.time()), 'available': False})
-                LOG.warning('Falha temporária de transporte; sessão preservada. Nova consulta em %s segundos, sem login.', interval)
-                STOP.wait(interval)
-                continue
-            # Unknown errors may represent an invalid session: do not retry immediately.
-            client = None
-            due = time.time() + COOLDOWN
-            save(state, {'next_login': due})
-            save(data / 'status.json', {'updated_at': int(time.time()), 'available': False})
-            LOG.warning('Consulta indisponível; sessão descartada e pausa de 15 minutos.')
+                if transient_transport(error):
+                    next_poll = time.monotonic() + interval
+                    LOG.warning('Transporte indisponível; sessão preservada. Nova consulta em %s segundos.', interval)
+                else:
+                    client = None
+                    due = time.time() + COOLDOWN
+                    save(state, {'next_login': due})
+                    LOG.warning('Sessão descartada; pausa de 15 minutos antes de autenticar.')
+            pause = min(1, max(0, next_poll - time.monotonic()))
+            if controller:
+                controller.wake.wait(pause)
+                controller.wake.clear()
+            else:
+                STOP.wait(pause)
+    finally:
+        if controller:
+            controller.set_monitor({}, False)
+        if bridge:
+            STOP.set()
+            bridge.thread.join(timeout=5)
     return 0
 
 

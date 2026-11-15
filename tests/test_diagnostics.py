@@ -31,6 +31,14 @@ class DiagnosticsTests(unittest.TestCase):
             d.probe(client, name)
             self.assertEqual(client.call, (*route, {'operation': 'read'}))
 
+    def test_active_acs_never_available_to_monitoring(self):
+        class Fake:
+            def request(self, *args):
+                self.fail('Active ACS must never be requested')
+        self.assertNotIn('acs', d.PROBES)
+        with self.assertRaises(KeyError):
+            d.probe(Fake(), 'acs')
+
     def test_error_summary_never_exposes_exception_text(self):
         class ApiError(Exception):
             error_code = -1

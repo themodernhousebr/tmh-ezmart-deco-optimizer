@@ -1,0 +1,24 @@
+# Cole como cartão manual em um painel. Confira os IDs no seu HA antes de salvar.
+type: entities
+title: EZmart Deco Optimizer
+show_header_toggle: false
+entities:
+  - entity: button.ezmart_deco_otimizar
+  - entity: button.ezmart_deco_verificar
+  - entity: binary_sensor.ezmart_deco_pronto_para_otimizar
+  - entity: binary_sensor.ezmart_deco_em_execucao
+  - entity: binary_sensor.ezmart_deco_principal_acessivel
+  - entity: sensor.ezmart_deco_estado
+  - entity: sensor.ezmart_deco_resultado
+  - entity: sensor.ezmart_deco_ultimo_pedido
+  - entity: sensor.ezmart_deco_bloqueio
+  - entity: sensor.ezmart_deco_ultima_acao
+  - entity: sensor.ezmart_deco_proximo_pedido
+  - entity: sensor.ezmart_deco_canal_2_4
+  - entity: sensor.ezmart_deco_canal_5_1
+  - entity: sensor.ezmart_deco_canal_5_2
+  - entity: sensor.ezmart_deco_leitura_canais
+  - entity: binary_sensor.ezmart_deco_recomendacao
+  - entity: binary_sensor.ezmart_deco_canais_alterados
+  - entity: sensor.ezmart_deco_nos
+  - entity: sensor.ezmart_deco_ultimo_monitoramento

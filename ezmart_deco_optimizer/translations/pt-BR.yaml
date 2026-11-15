@@ -1,0 +1,80 @@
+configuration:
+  mqtt_enabled:
+    name: Entidades no Home Assistant
+    description: Publica botões e sensores via MQTT. Quando ativado, o app aguarda pedidos; não executa a ação TMP antiga ao iniciar.
+  mqtt_commands_enabled:
+    name: Aceitar pedidos de otimização
+    description: Permite acionar os botões pelo Home Assistant. Desativar mantém o monitoramento e impede novos pedidos.
+  request_cooldown_seconds:
+    name: Intervalo mínimo entre pedidos
+    description: Mínimo de 900 segundos, inclusive quando a análise não recomenda mudança. O intervalo é preservado após reinício.
+  mqtt_host:
+    name: Servidor MQTT alternativo
+    description: Deixe vazio para usar automaticamente o Mosquitto fornecido pelo Supervisor.
+  mqtt_port:
+    name: Porta do MQTT alternativo
+  mqtt_username:
+    name: Usuário do MQTT alternativo
+  mqtt_password:
+    name: Senha do MQTT alternativo
+  mqtt_tls:
+    name: TLS no MQTT alternativo
+    description: Exige certificado válido e confiável. Com servidor vazio, utiliza a configuração do serviço do Supervisor.
+  host:
+    name: IP do Deco principal
+  username:
+    name: Usuário HTTPS do Deco
+  password:
+    name: Senha HTTPS do Deco
+  poll_seconds:
+    name: Intervalo do monitoramento
+    description: Pausa após consultar inventário e modo; não agenda otimizações. Pedidos do Home Assistant acordam o app sem esperar esse intervalo.
+  diagnose_acs:
+    name: ACS antigo — desativado
+    description: Opção mantida por compatibilidade. Não realiza consultas; a análise ACS é uma ação explícita.
+  diagnose_wifi_support:
+    name: Consultar capacidades Wi-Fi
+    description: No M9 do piloto essa consulta retorna erro API 1 e pode ficar desativada.
+  diagnose_channels:
+    name: Consultar canais
+    description: No modo MQTT os canais são acompanhados automaticamente, mesmo com esta opção desativada.
+  diagnose_performance:
+    name: Consultar CPU e memória
+  diagnostic_seconds:
+    name: Intervalo dos diagnósticos
+    description: No modo manual, zero consulta uma vez. No modo MQTT, canais seguem o monitoramento e demais diagnósticos usam no mínimo 60 segundos.
+  tmp_enabled:
+    name: Habilitar ações do Deco
+    description: Necessário para os pedidos de otimização. Não altera o intervalo nem executa otimizações por conta própria no modo MQTT.
+  tmp_action:
+    name: Ação ao iniciar — somente sem MQTT
+    description: Ignorada quando Entidades no Home Assistant está ativado. Use os botões para otimizar ou verificar sob demanda.
+  tmp_scan_backend:
+    name: Método de otimização
+    description: Para o M9 Plus V2 do piloto, selecione m9_acs. O método legacy não permite aplicar otimização.
+  tmp_scan_request_id:
+    name: ID da análise manual
+    description: Usado apenas com scan no modo sem MQTT. Botões do Home Assistant geram IDs automaticamente.
+  tmp_optimize_request_id:
+    name: ID da aplicação manual
+    description: Usado apenas com optimize ou verify no modo sem MQTT. Sem espaços. Os botões geram ou recuperam o ID automaticamente.
+  tmp_scan_timeout_seconds:
+    name: Prazo da análise
+  tmp_apply_timeout_seconds:
+    name: Prazo da resposta à aplicação
+    description: Timeout nunca causa reenvio automático da aplicação.
+  tmp_verify_delay_seconds:
+    name: Espera antes de verificar
+  tmp_verify_timeout_seconds:
+    name: Prazo da verificação
+  tmp_verify_interval_seconds:
+    name: Intervalo entre leituras de verificação
+  tmp_timeout_seconds:
+    name: Prazo da conexão TMP
+  tmp_email:
+    name: E-mail da conta proprietária Deco
+  tmp_password:
+    name: Senha da conta proprietária Deco
+  tmp_host_key_sha256:
+    name: Impressão digital SSH conferida
+    description: Identidade do Deco previamente validada; não é senha. A conexão é bloqueada se a chave não corresponder.

@@ -1,0 +1,27 @@
+name: Validate app
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install validation dependencies
+        run: python -m pip install 'PyYAML==6.0.3' 'Jinja2==3.1.6' 'paho-mqtt==2.1.0'
+      - name: Run tests including MQTT loopback
+        run: python -m unittest discover -s tests
+      - name: Build amd64 app image
+        run: docker build --pull --tag ezmart-validation ./ezmart_deco_optimizer
+      - name: Check installed runtime dependencies
+        run: docker run --rm --entrypoint python ezmart-validation -c "import tplink_deco_api, paramiko, paho.mqtt.client; import run, mqtt_bridge; print(run.VERSION)"

@@ -2,7 +2,7 @@
 import math
 
 PROBES = {
-    'acs': ('admin/network_optimize', 'acs_optimize'),
+    # acs_optimize/read can start a scan in M9 firmware. Never poll it here.
     'wifi_support': ('admin/wireless', 'get_support'),
     'channels': ('admin/wireless', 'wlan'),
     'performance': ('admin/network', 'performance'),

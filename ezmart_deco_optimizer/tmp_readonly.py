@@ -1,4 +1,4 @@
-"""TMP state reader and explicitly requested scan. No optimize, shell or raw command API."""
+"""Fixed TMP operations with separate gates for manual scans and M9 application."""
 import hashlib
 import hmac
 import json
@@ -12,6 +12,10 @@ import zlib
 ALLOC = 1
 QUALITY = 0x4265
 SCAN = 0x4263
+# M9 V2 firmware maps this to acs_optimize/read, which can START a scan.
+M9_ACS_SCAN = 0x424F
+M9_ACS_APPLY = 0x4250
+# Legacy 0x4266, arbitrary writes and shell commands remain unavailable.
 MAX_RESULT = 262144
 
 
@@ -19,8 +23,10 @@ class ProtocolError(Exception):
     pass
 
 
-def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False):
-    if opcode not in (ALLOC, QUALITY) and not (allow_scan and opcode == SCAN):
+def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False, allow_acs_scan=False, allow_acs_apply=False):
+    if (opcode not in (ALLOC, QUALITY) and not (allow_scan and opcode == SCAN)
+            and not (allow_acs_scan and opcode == M9_ACS_SCAN)
+            and not (allow_acs_apply and opcode == M9_ACS_APPLY)):
         raise ProtocolError()
     business = struct.pack('>BBHBBHIII', 1, 2, opcode, 4 if pull else 2,
                            0, transaction, zlib.crc32(body) if body else 0, len(body), offset) + body
@@ -32,6 +38,8 @@ def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan
 class Reader:
     def __init__(self, channel, allow_scan=False):
         self.allow_scan = allow_scan
+        self.allow_acs_scan = False
+        self.allow_acs_apply = False
         self.channel = channel
         self.sequence = 0
         self.transaction = -1
@@ -43,7 +51,7 @@ class Reader:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError()
-            self.channel.settimeout(min(remaining, 10))
+            self.channel.settimeout(remaining)
             part = self.channel.recv(size - len(result))
             if not part:
                 raise ProtocolError()
@@ -52,14 +60,21 @@ class Reader:
 
     def send(self, opcode, body, pull=False, offset=0):
         self.sequence += 1
-        self.channel.sendall(packet(opcode, body, self.transaction, self.sequence, offset, pull, self.allow_scan))
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError()
+        self.channel.settimeout(remaining)
+        self.channel.sendall(packet(opcode, body, self.transaction, self.sequence, offset, pull,
+                                    self.allow_scan, self.allow_acs_scan, self.allow_acs_apply))
 
-    def request(self, opcode):
-        self.deadline = time.monotonic() + 20
+    def request(self, opcode, timeout_seconds=20):
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 180:
+            raise ProtocolError()
+        self.deadline = time.monotonic() + timeout_seconds
         self.transaction += 1
         # The quality-result read requires a network_quality selector.
-        request = {'config_version': int(time.time()*1000),
-                   'params': {'scan_type': ['network_quality']}}
+        params = {} if opcode in (M9_ACS_SCAN, M9_ACS_APPLY) else {'scan_type': ['network_quality']}
+        request = {'config_version': int(time.time()*1000), 'params': params}
         body = b'' if opcode == ALLOC else json.dumps(request, separators=(',', ':')).encode()
         self.send(opcode, body)
         result = bytearray()
@@ -122,8 +137,74 @@ def project_quality(document):
     return out
 
 
-def run_probe(options, data, save, clock=time.time):
+def project_m9_acs(document):
+    """Whitelist the actual M9 controller response, not arbitrary result fields."""
+    if not isinstance(document, dict) or type(document.get('error_code')) is not int:
+        return {'state': 'scan_response_unrecognized'}
+    code = document['error_code']
+    if code != 0:
+        return {'state': 'scan_rejected', 'api_code': code}
+    result = document.get('result')
+    if not isinstance(result, dict):
+        return {'state': 'scan_response_unrecognized', 'api_code': 0}
+    needed = result.get('need_optimize')
+    items = result.get('optimize_item')
+    channel = items.get('channel') if isinstance(items, dict) else None
+    if type(needed) is not bool or type(channel) is not bool or needed != channel:
+        return {'state': 'scan_response_unrecognized', 'api_code': 0}
+    out = {'state': 'scan_response_received', 'api_code': 0, 'need_optimize': needed,
+           'optimize_item': {'channel': channel}, 'fresh_scan_confirmed': False,
+           'result_may_be_cached': True}
+    estimated = result.get('optimize_time')
+    if type(estimated) is int and 0 <= estimated <= 600:
+        # This is the device's APPLY estimate, not the duration of the scan.
+        out['estimated_apply_seconds'] = estimated
+    return out
+
+
+def scan_request(options, data):
+    """Validate action and replay protection before any SSH connection."""
+    backend = options.get('tmp_scan_backend', 'legacy')
+    if backend not in ('legacy', 'm9_acs'):
+        return None, {'state': 'invalid_scan_backend'}
+    request_id = options.get('tmp_scan_request_id', '')
+    if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', request_id):
+        return None, {'state': 'scan_id_required'}
+    wait = options.get('tmp_scan_timeout_seconds', 90)
+    if type(wait) is not int or not 30 <= wait <= 180:
+        return None, {'state': 'invalid_scan_timeout'}
+    journal = data / 'tmp_scan_journal.json'
+    try:
+        history = json.loads(journal.read_text()) if journal.exists() else {}
+    except (OSError, ValueError):
+        return None, {'state': 'invalid_scan_journal'}
+    if not isinstance(history, dict):
+        return None, {'state': 'invalid_scan_journal'}
+    if request_id in history:
+        return None, {'state': 'already_requested', 'report': history[request_id]}
+    if len(history) >= 1000:
+        return None, {'state': 'scan_history_full'}
+    return (request_id, backend, wait, journal, history), None
+
+
+def run_probe(options, data, save, clock=time.time, channel_snapshot=None, should_stop=lambda: False, wait=None):
     """One connection per process. A missing pin discovers identity without auth."""
+    action = options.get('tmp_action', 'read')
+    if action not in ('read', 'scan', 'optimize', 'verify'):
+        return {'state': 'invalid_action'}
+    if action in ('optimize', 'verify'):
+        from m9_actions import prepare, verify_only
+        _, error = prepare(options, data, clock(), verify=action == 'verify')
+        if error:
+            return error
+        if action == 'verify':
+            # HTTPS observations only. No SSH login, scan, or application.
+            return verify_only(options, data, save, channel_snapshot,
+                               should_stop=should_stop, wait=wait, clock=clock)
+    if action == 'scan':
+        _, error = scan_request(options, data)
+        if error:
+            return error
     import paramiko
     # Paramiko logs may include authentication metadata: suppress its entire tree.
     for name in list(logging.Logger.manager.loggerDict) + ['paramiko']:
@@ -179,11 +260,22 @@ def run_probe(options, data, save, clock=time.time):
         if not re.fullmatch(b'[0-9a-fA-F]{32}', token):
             raise ProtocolError()
         del token
+        if action == 'optimize':
+            from m9_actions import optimize_once
+            stage = 'optimize'
+            return optimize_once(reader, options, data, save, channel_snapshot,
+                                 should_stop=should_stop, wait=wait, clock=clock)
+        if action == 'scan' and options.get('tmp_scan_backend') == 'm9_acs':
+            stage = 'scan'
+            # Legacy 0x4265 is not a reliable preflight for the M9 ACS path.
+            return scan_once(reader, None, options, data, save, channel_snapshot=channel_snapshot)
         stage = 'quality_read'
         before = project_quality(json.loads(reader.request(QUALITY)))
-        if options.get('tmp_action', 'read') == 'scan':
+        if action == 'scan':
             stage = 'scan'
-            return scan_once(reader, before, options, data, save)
+            return scan_once(reader, before, options, data, save, channel_snapshot=channel_snapshot)
+        before['source'] = 'legacy_network_quality'
+        before['official_optimization_equivalent'] = False
         return before
     except Exception:
         # Keep interrupted/failed login guard. Never log exception strings or tokens.
@@ -199,28 +291,23 @@ def run_probe(options, data, save, clock=time.time):
                     pass
 
 
-def scan_once(reader, before, options, data, save, monotonic=time.monotonic, sleep=time.sleep):
+def scan_once(reader, before, options, data, save, monotonic=time.monotonic, sleep=time.sleep, channel_snapshot=None):
     """Durable at-most-once scan dispatch. Never repeats an uncertain action."""
-    request_id = options.get('tmp_scan_request_id', '')
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', request_id):
-        return {'state': 'scan_id_required'}
-    journal = data / 'tmp_scan_journal.json'
-    history = json.loads(journal.read_text()) if journal.exists() else {}
-    if not isinstance(history, dict):
-        return {'state': 'invalid_scan_journal'}
-    if request_id in history:
-        return {'state': 'already_requested', 'report': history[request_id]}
-    if len(history) >= 1000:
-        return {'state': 'scan_history_full'}
-    wait = options.get('tmp_scan_timeout_seconds', 90)
-    if type(wait) is not int or not 30 <= wait <= 180:
-        return {'state': 'invalid_scan_timeout'}
-    if before.get('state') != 'idle':
+    prepared, error = scan_request(options, data)
+    if error:
+        return error
+    request_id, backend, wait, journal, history = prepared
+    if backend == 'legacy' and (not isinstance(before, dict) or before.get('state') != 'idle'):
         return {'state': 'scan_blocked', 'before': before}
-    report = {'state': 'dispatch_uncertain', 'before': before, 'started_at': int(time.time())}
+    report = {'state': 'dispatch_uncertain', 'backend': backend, 'request_id': request_id,
+              'started_at': int(time.time()), 'apply_command_sent': False, 'channels_applied': False}
+    if before is not None:
+        report['before'] = before
     # Commit the ID before sending: crashes/timeouts must not replay a scan.
     history[request_id] = report
     save(journal, history)
+    if backend == 'm9_acs':
+        return m9_scan_once(reader, report, wait, journal, history, data, save, channel_snapshot)
     try:
         reader.allow_scan = True
         ack = json.loads(reader.request(SCAN))
@@ -258,6 +345,47 @@ def scan_once(reader, before, options, data, save, monotonic=time.monotonic, sle
     report['finished_at'] = int(time.time())
     report['channels_applied'] = False
     history[request_id] = report
+    save(journal, history)
+    save(data / 'tmp_scan_report.json', report)
+    return report
+
+
+def m9_scan_once(reader, report, wait, journal, history, data, save, channel_snapshot):
+    """Exactly one ACS request. Polling this opcode can launch another scan."""
+    def snapshot():
+        if channel_snapshot is None:
+            return {'state': 'not_requested'}
+        try:
+            from diagnostics import project
+            # Callback returns a raw WLAN response. Project it here before storage.
+            value = project('channels', channel_snapshot())
+            if not value:
+                return {'state': 'unavailable'}
+            return {'state': 'available', 'data': value, 'updated_at': int(time.time())}
+        except Exception:
+            return {'state': 'unavailable'}
+    report['channels_before'] = snapshot()
+    LOG = logging.getLogger('ezmart')
+    LOG.info('TMP M9 ACS: uma solicitação de varredura; aguardando até %s segundos. Sem aplicação de canais.', wait)
+    started = time.monotonic()
+    try:
+        reader.allow_acs_scan = True
+        result = reader.request(M9_ACS_SCAN, timeout_seconds=wait)
+        report.update(project_m9_acs(json.loads(result)))
+    except TimeoutError:
+        report['state'] = 'scan_timeout_uncertain'
+    except Exception:
+        report['state'] = 'scan_outcome_uncertain'
+    finally:
+        reader.allow_acs_scan = False
+    report['response_seconds'] = round(time.monotonic() - started, 3)
+    report['finished_at'] = int(time.time())
+    # Persist the outcome before optional monitoring, which can itself time out.
+    save(journal, history)
+    save(data / 'tmp_scan_report.json', report)
+    report['channels_after'] = snapshot()
+    if report['channels_before']['state'] == report['channels_after']['state'] == 'available':
+        report['observed_channel_data_changed'] = report['channels_before']['data'] != report['channels_after']['data']
     save(journal, history)
     save(data / 'tmp_scan_report.json', report)
     return report

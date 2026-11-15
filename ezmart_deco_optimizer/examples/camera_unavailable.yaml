@@ -1,0 +1,82 @@
+blueprint:
+  name: "EZmart — solicitar otimização quando uma câmera ficar indisponível"
+  description: >-
+    Solicita uma análise e eventual otimização apenas após uma transição para o estado de falha
+    persistir pelo tempo configurado. Não repete enquanto a câmera continuar nesse estado.
+    O EZmart aplica somente se houver recomendação e respeita seu próprio intervalo mínimo.
+    Indisponibilidade não prova interferência Wi-Fi; selecione uma entidade que realmente indique
+    conectividade e acrescente condições para manutenção ou falha de energia, se necessário.
+  domain: automation
+  author: The Modern House
+  homeassistant:
+    min_version: "2026.11.0"
+  input:
+    cameras:
+      name: Câmeras ou sensores de conectividade
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: camera
+            - domain: binary_sensor
+            - domain: sensor
+    offline_state:
+      name: Estado que indica falha
+      description: "Use unavailable para câmeras, ou off para um sensor de conectividade. Use o estado interno, não o texto traduzido."
+      default: unavailable
+      selector:
+        text: {}
+    offline_seconds:
+      name: Tempo contínuo em falha
+      default: 180
+      selector:
+        number:
+          min: 30
+          max: 3600
+          step: 30
+          unit_of_measurement: s
+          mode: box
+    optimize_button:
+      name: Botão EZmart — Otimizar se necessário
+      default: button.ezmart_deco_otimizar
+      selector:
+        entity:
+          filter:
+            domain: button
+    ready_sensor:
+      name: Sensor EZmart — Pronto para otimizar
+      default: binary_sensor.ezmart_deco_pronto_para_otimizar
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+    extra_conditions:
+      name: Condições adicionais
+      description: "Opcional: impedir acionamento durante manutenção, falta de energia ou indisponibilidade do roteador."
+      default: []
+      selector:
+        condition: {}
+triggers:
+  - trigger: state
+    entity_id: !input cameras
+    to: !input offline_state
+    for:
+      seconds: !input offline_seconds
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none and
+         trigger.from_state.state not in ['unknown', 'unavailable'] }}
+  - condition: state
+    entity_id: !input ready_sensor
+    state: "on"
+  - condition: and
+    conditions: !input extra_conditions
+actions:
+  - action: button.press
+    target:
+      entity_id: !input optimize_button
+  - delay:
+      minutes: 15
+mode: single
+max_exceeded: silent

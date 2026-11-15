@@ -14,7 +14,7 @@ spec.loader.exec_module(tmp)
 
 class TmpTests(unittest.TestCase):
     def test_no_action_opcode_accepted(self):
-        for opcode in (0x4263, 0x4266, 0xc456):
+        for opcode in (0x424f, 0x4250, 0x4263, 0x4266, 0xc456):
             with self.assertRaises(tmp.ProtocolError):
                 tmp.packet(opcode, b'', 0, 1)
 

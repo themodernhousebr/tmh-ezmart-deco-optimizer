@@ -1,0 +1,105 @@
+blueprint:
+  name: EZmart — repetir até confirmar uma nova aplicação
+  description: Após indisponibilidade contínua de 3 minutos, repete pedidos com pausa de 15 minutos até aceite do
+    Deco e verificação estável de um novo ID. Usa os IDs padrão do EZmart; confira-os antes de ativar. Continua
+    mesmo se a câmera voltar; reinício/reload cancela a execução. Não força aplicação sem recomendação.
+  domain: automation
+  author: The Modern House
+  source_url: https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer/blob/main/ezmart_deco_optimizer/examples/camera_until_confirmed.yaml
+  homeassistant:
+    min_version: 2026.11.0
+  input:
+    camera:
+      name: Câmera cuja falha é unavailable
+      selector:
+        entity:
+          filter:
+            domain: camera
+triggers:
+- trigger: state
+  entity_id: !input 'camera'
+  to: unavailable
+  for:
+    minutes: 3
+conditions:
+- condition: template
+  value_template: '{{ trigger.from_state is not none and trigger.from_state.state not in [''unknown'', ''unavailable'']
+    }}'
+actions:
+- alias: Aguardar os estados do EZmart antes de registrar o histórico
+  wait_template: '{{ states(''sensor.ezmart_deco_resultado'') not in [''unknown'', ''unavailable''] and is_state(''binary_sensor.ezmart_deco_em_execucao'',
+    ''off'') }}'
+- variables:
+    relatorio_anterior: '{{ state_attr(''sensor.ezmart_deco_resultado'', ''request_id'') or '''' }}'
+    pedido_anterior: '{{ state_attr(''sensor.ezmart_deco_resultado'', ''last_request_id'') or '''' }}'
+- repeat:
+    sequence:
+    - alias: Aguardar liberação ou possibilidade de verificar a aplicação pendente
+      wait_template: >-
+        {{ is_state('binary_sensor.ezmart_deco_em_execucao', 'off') and
+         (is_state('binary_sensor.ezmart_deco_pronto_para_otimizar', 'on') or
+          (is_state('sensor.ezmart_deco_bloqueio', 'previous_apply_unverified') and
+           states('button.ezmart_deco_verificar') != 'unavailable')) }}
+    - if:
+      - condition: template
+        value_template: >-
+          {{ is_state('binary_sensor.ezmart_deco_em_execucao', 'off')
+             and states('sensor.ezmart_deco_ultimo_pedido') in ['apply_acknowledged', 'verification_only']
+             and states('sensor.ezmart_deco_resultado') in ['acknowledged_with_channel_change', 'acknowledged_without_observed_change']
+             and state_attr('sensor.ezmart_deco_resultado', 'verification') == 'stable'
+             and state_attr('sensor.ezmart_deco_resultado', 'api_code') == 0
+             and state_attr('sensor.ezmart_deco_resultado', 'request_id') not in [none, '', relatorio_anterior,
+          pedido_anterior]
+             and state_attr('sensor.ezmart_deco_resultado', 'request_id') == state_attr('sensor.ezmart_deco_resultado',
+          'last_request_id') }}
+      then:
+      - stop: Nova aplicação aceita pelo Deco e verificação estável confirmadas.
+    - variables:
+        pedido_antes_do_envio: '{{ state_attr(''sensor.ezmart_deco_resultado'', ''last_request_id'') or '''' }}'
+    - choose:
+      - conditions:
+        - condition: state
+          entity_id: sensor.ezmart_deco_bloqueio
+          state: previous_apply_unverified
+        sequence:
+        - action: button.press
+          continue_on_error: true
+          target:
+            entity_id: button.ezmart_deco_verificar
+      default:
+      - action: button.press
+        continue_on_error: true
+        target:
+          entity_id: button.ezmart_deco_otimizar
+    - alias: Aguardar recebimento do pedido
+      wait_template: '{{ is_state(''binary_sensor.ezmart_deco_em_execucao'', ''on'') or (state_attr(''sensor.ezmart_deco_resultado'',
+        ''last_request_id'') or '''') != pedido_antes_do_envio }}'
+      timeout: 00:01:00
+      continue_on_timeout: true
+    - alias: Aguardar fim da operação; timeout não é sucesso
+      wait_template: '{{ is_state(''binary_sensor.ezmart_deco_em_execucao'', ''off'') }}'
+      timeout: 00:15:00
+      continue_on_timeout: true
+    - if:
+      - condition: template
+        value_template: >-
+          {{ is_state('binary_sensor.ezmart_deco_em_execucao', 'off')
+             and states('sensor.ezmart_deco_ultimo_pedido') in ['apply_acknowledged', 'verification_only']
+             and states('sensor.ezmart_deco_resultado') in ['acknowledged_with_channel_change', 'acknowledged_without_observed_change']
+             and state_attr('sensor.ezmart_deco_resultado', 'verification') == 'stable'
+             and state_attr('sensor.ezmart_deco_resultado', 'api_code') == 0
+             and state_attr('sensor.ezmart_deco_resultado', 'request_id') not in [none, '', relatorio_anterior,
+          pedido_anterior]
+             and state_attr('sensor.ezmart_deco_resultado', 'request_id') == state_attr('sensor.ezmart_deco_resultado',
+          'last_request_id') }}
+      then:
+      - stop: Nova aplicação aceita pelo Deco e verificação estável confirmadas.
+    - alias: Esperar antes de tentar novamente
+      delay: 00:15:00
+    until:
+    - condition: template
+      value_template: '{{ false }}'
+mode: single
+max_exceeded: silent
+trace:
+  stored_traces: 10

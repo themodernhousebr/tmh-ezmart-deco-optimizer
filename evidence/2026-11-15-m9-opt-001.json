@@ -1,0 +1,158 @@
+{
+  "source": "operator_supplied_log",
+  "reported_date": "2026-11-15",
+  "reported_log_window": "10:08:28.420–10:10:17.755",
+  "app_version": "0.7.0-dev.1",
+  "pilot": {
+    "primary_model": "M9Plus",
+    "hardware": "V2",
+    "mode": "FAP",
+    "firmware": "1.9.1 Build 20250612 Rel. 45690"
+  },
+  "scope": "One accepted application with an observed primary-device channel change; no performance measurement or post-action secondary-node health confirmation.",
+  "report": {
+    "updated_at": 1794748217,
+    "state": "apply_acknowledged",
+    "request_id": "m9-opt-001",
+    "backend": "m9_acs",
+    "started_at": 1794748124,
+    "apply_command_attempted": true,
+    "preflight": {
+      "state": "scan_response_received",
+      "api_code": 0,
+      "need_optimize": true,
+      "optimize_item": {
+        "channel": true
+      },
+      "fresh_scan_confirmed": false,
+      "result_may_be_cached": true,
+      "estimated_apply_seconds": 20,
+      "shape": {
+        "root_type": "object",
+        "has_error_code": true,
+        "error_code_type": "integer",
+        "result_type": "object"
+      }
+    },
+    "preflight_seconds": 26.385,
+    "channels_before_apply": {
+      "state": "available",
+      "data": {
+        "band2_4": {
+          "channel": 9,
+          "channel_width": "HT40",
+          "backhaul": {
+            "channel": 9
+          }
+        },
+        "band5_1": {
+          "channel": 36,
+          "channel_width": "HT80",
+          "backhaul": {
+            "channel": 36
+          }
+        },
+        "band5_2": {
+          "channel": 149,
+          "channel_width": "HT80",
+          "backhaul": {
+            "channel": 36
+          }
+        }
+      },
+      "updated_at": 1794748151
+    },
+    "apply_attempted_at": 1794748151,
+    "apply_ack": {
+      "state": "accepted",
+      "shape": {
+        "root_type": "object",
+        "has_error_code": true,
+        "error_code_type": "integer",
+        "result_type": "null"
+      },
+      "api_code": 0
+    },
+    "apply_response_seconds": 14.214,
+    "verification": {
+      "state": "stable",
+      "attempts": 3,
+      "failures": 0,
+      "stable_samples": 3,
+      "started_at": 1794748165,
+      "last_available": {
+        "state": "available",
+        "data": {
+          "band2_4": {
+            "channel": 9,
+            "channel_width": "HT40",
+            "backhaul": {
+              "channel": 9
+            }
+          },
+          "band5_1": {
+            "channel": 36,
+            "channel_width": "HT80",
+            "backhaul": {
+              "channel": 36
+            }
+          },
+          "band5_2": {
+            "channel": 157,
+            "channel_width": "HT80",
+            "backhaul": {
+              "channel": 36
+            }
+          }
+        },
+        "updated_at": 1794748217
+      },
+      "finished_at": 1794748217,
+      "channel_changes": [
+        {
+          "band": "band5_2",
+          "before": 149,
+          "after": 157
+        }
+      ],
+      "observed_channels_changed": true
+    },
+    "conclusion": "acknowledged_with_channel_change",
+    "finished_at": 1794748217
+  },
+  "follow_up_monitoring": {
+    "source": "operator_supplied_log",
+    "reported_date": "2026-11-15",
+    "completed_cycles": [
+      {
+        "cycle": 2,
+        "started": "10:10:47.761",
+        "finished": "10:10:52.946"
+      },
+      {
+        "cycle": 3,
+        "started": "10:11:22.952",
+        "finished": "10:11:28.819"
+      },
+      {
+        "cycle": 4,
+        "started": "10:11:58.825",
+        "finished": "10:12:04.555"
+      }
+    ],
+    "last_partial_cycle": {
+      "cycle": 5,
+      "started": "10:12:34.560",
+      "last_operation": "get_device_list",
+      "completion_observed": false
+    },
+    "operations_completed": [
+      "get_device_list",
+      "get_device_mode"
+    ],
+    "errors_observed": false,
+    "new_login_observed": false,
+    "repeated_optimization_observed": false,
+    "scope": "Continued HTTPS inventory/mode monitoring after application; no per-node connectivity or throughput measurement."
+  }
+}
