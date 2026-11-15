@@ -216,3 +216,17 @@ O transporte distingue os cenários:
 Testes feitos pelo operador no Terminal/SSH do HA na rede do X50: TCP/20001 retornou `Connection refused`, código 1; TCP/30001 conectou, código 0. Não foram enviados login, análise ou aplicação. A porta aberta é coerente com TPAP no firmware, mas não prova handshake, identidade, autenticação nem operação ACS funcionando no dispositivo.
 
 Direção de compatibilidade: preservar o transporte SSH/TMP validado no M9 e acrescentar TPAP separadamente, compartilhando as regras de recomendação, IDs persistentes, cooldown, verificação e entidades MQTT. A 0.8.0-dev.2 ainda não implementa TPAP. Nenhuma mudança de runtime ou rebuild é necessária para registrar estes resultados; a homologação do X50 continua pendente.
+
+## X50 — handshake TLS observado e diagnóstico independente
+
+Em 15/11/2026 o operador instalou OpenSSL no app Terminal/SSH e executou `s_client -connect 192.168.68.1:30001 -brief`, com entrada encerrada e timeout externo de oito segundos. A saída confirmou `CONNECTION ESTABLISHED`, TLS 1.3, `TLS_AES_256_GCM_SHA384`, chave temporária X25519, certificado `CN=Deco X50(US), OU=HOMEWIFISYSTEM` e código final 0. A cadeia apresentou uma CA intermediária HOMEWIFISYSTEM CA da TP-LINK SYSTEMS INC.
+
+O mesmo teste reportou `unable to get local issuer certificate` (código de verificação 20). O código final 0 do s_client sem `-verify_return_error` não prova confiança no certificado. A conexão está demonstrada, mas a cadeia ainda não foi validada no aparelho. Nenhum login ou comando ACS foi enviado nesse teste.
+
+Na imagem oficial 1.8.4 foi localizada `/etc/tss/root_ca.pem`, certificado público autoassinado com sujeito TP-LINK SYSTEMS DEVICE ROOT CA. SHA-256 do certificado DER: `fa85d87d218313286f0ef67628d177a1270a446dbd1554b7d47d86aee2fdb216`. Validade declarada: 22/11/2024 a 15/11/2054. Apenas o certificado público foi extraído; nenhuma chave privada foi lida. Ele foi incorporado ao diagnóstico independente `tools/x50_tls_probe.py`, com validação obrigatória da cadeia, nome de produto e opção de comparação da impressão individual. A correspondência desta raiz com a cadeia do X50 físico permanece pendente do diagnóstico do operador.
+
+O diagnóstico usa Python padrão, não depende da imagem do app e não altera seu runtime, versão, transporte M9 ou entidades MQTT. Limita-se a TLS e fecha a conexão antes de qualquer mensagem de aplicação. Uma falha de certificado não provoca reconexão sem validação. O nome do produto não é uma identidade individual nem prova correspondência com um IP; esses limites constam explicitamente da saída.
+
+A análise estática de libtpap identificou mensagens de autenticação SPAKE2+ (`pake_register`, `pake_share`, `pake_confirm`) e enquadramento próprio sobre TLS; isso não constitui implementação ou validação de login. A descoberta do firmware contém rotinas de detecção/compatibilidade que podem persistir estado e reiniciar o Dropbear. Por isso não foi incluída uma sonda UDP genérica inferida de dispositivos Tapo nem ativada compatibilidade antiga para contornar TPAP. A investigação de autenticação segue separada do transporte M9 funcional.
+
+Testes do diagnóstico cobrem CA pública exata, validação obrigatória, modelo inesperado, comparação de impressão, falhas de certificado sem fallback, timeouts, recusa TCP e ausência de dados de aplicação. São testes locais simulados; não substituem o teste físico nem homologam otimização no X50.
