@@ -172,7 +172,7 @@ Testes incluem servidor MQTT 5 mínimo em loopback e biblioteca Paho real, isola
 
 ## X50 dos clientes — análise offline de 15/11/2026
 
-Cenário informado: X50 principal em modo roteador, DHCP ativo e modem da operadora a montante. A foto identifica uma unidade **Deco X50 (US), Ver: 1.0**. Firmware instalado ainda desconhecido; não generalizar essa etiqueta para todos os clientes.
+Cenário informado: X50 principal em modo roteador, DHCP ativo e modem da operadora a montante. A foto identifica uma unidade **Deco X50 (US), Ver: 1.0**. O firmware instalado ainda era desconhecido nesta primeira etapa; a confirmação posterior está registrada abaixo. Não generalizar essa etiqueta para todos os clientes.
 
 Referência baixada da [TP-Link Brasil, X50 V1](https://www.tp-link.com/br/support/download/deco-x50/v1/): **1.8.0 Build 25102213 Rel. 43970**, publicada em 08/12/2025. ZIP SHA-256 `f5891e871865d6213b1a6b05aa4d65051e19a0a37bee0b6550d9033fb4092a12`; binário original `075ed06721207220b722451bf33cbe8ed10f7c981e15bbe71daaa35dcdcb2ea6`.
 
@@ -188,3 +188,31 @@ No `tmpsvr` AArch64, resolvendo relocations de PT_DYNAMIC:
 O controlador Lua mantém resultado da análise e aplicação separados. A aplicação consome a recomendação armazenada e chama `set_best_channel`; há espera mínima interna de 1800 segundos após aplicação. A rotina Wi-Fi também pode reiniciar repacd e alterar largura de 2,4 GHz. Isso reforça compatibilidade de protocolo, **não homologa autenticação, transporte ou aplicação no X50 real**. SHA-256 de tmpsvr: `8bb230007719da1bc309ac1a564c00d3ba24259940225f86046b2e0217e5c197`; controlador: `48755fc546bd6ebca912b70c9bd3202f5ba8b7b20bc9326aaea4c88fc92090ab`.
 
 Antes da etiqueta, também foi examinada a imagem oficial [X50 V3 1.7.0](https://www.tp-link.com/br/support/download/deco-x50/v3/), com rotinas ACS presentes. Essa variante não substitui a V1 identificada. Próxima validação exige firmware instalado e teste controlado no X50 principal; nenhum comando novo foi enviado nesta investigação.
+
+## X50 principal com firmware 1.8.4 — transporte diferente confirmado parcialmente
+
+Em 15/11/2026, o operador forneceu a tela do X50 principal com **1.8.4 Build 26051413 Rel. 27460** e informou que a etiqueta US V1.0 pertence à mesma unidade. As imagens apresentam identificadores MAC diferentes; a associação é informação do operador, não validação independente da revisão física. Não publicar os identificadores, nem inferir que V1.0 e V1.30 são intercambiáveis.
+
+A [página oficial brasileira X50 V1.30](https://www.tp-link.com/br/support/download/deco-x50/v1.30/) oferece exatamente esse build, publicado em 26/06/2026. O [pacote oficial](https://static.tp-link.com/upload/firmware/2026/202606/20260626/X50v1_3_X55v1_3_XM50v1_HB6300v1_W8100v1_WM9000v1-ver1-8-4-P1%5B26051413-rel27460%5D.zip) contém uma imagem identificada como X50v1_3/X55v1_3 e outros modelos. Foi baixado para análise offline do software correspondente ao print, sem recomendar ou realizar atualização de firmware.
+
+SHA-256:
+
+- ZIP: `25365baf5fb55d41eab6af9ecbd79d2f350e629dd2bb006ced920e57f7eafb07`.
+- Binário original: `f95c0003e52d3b2b1bd2f38315403cb2465ec1d9195df81fa5fa5e9c368337ce`.
+- Binário decodificado após verificação RSA-PSS: `7c8c8e738bec2fb4419f3a68daabf62775a21c42f3fa953ef1ee23cc6ab408c5`.
+- `/usr/bin/tmpsvr`: `fb22144e28c45a8e62a76c1683e47e08a6611578924760be673014fe08bab815`.
+- Controlador `mobile_app/network_optimize.lua`: `48755fc546bd6ebca912b70c9bd3202f5ba8b7b20bc9326aaea4c88fc92090ab`.
+- Modelo `app_wifi.lua`: `ba2873e0c5b04877b43e936b663e37300cca29682375a99f7110c92dc58d527f`.
+
+O registro TMP mantém `0x424F → acs_optimize/read` e `0x4250 → acs_optimize/write` nos offsets `0x1c780` e `0x1c7a8`. O controlador de otimização é byte a byte idêntico ao da imagem 1.8.0 analisada anteriormente. A função `set_best_channel` (metadados de linhas 1054–1126 na 1.8.4) também mantém instruções e constantes, desconsiderando números de linha. Existem diferenças em outras funções Wi-Fi, incluindo seleção por interface e consulta de capacidades; não se conclui identidade integral de firmware ou de comportamento de rádio.
+
+O transporte distingue os cenários:
+
+- `/etc_ro/init.d/tpap` inicia antes do Dropbear, cria `/tmp/tpap_support` como `v1` se ausente e executa `tpapsvr`.
+- `/etc_ro/init.d/dropbear` não inicia a instância normal quando esse indicador difere de `v0`, exceto no modo de fábrica. Nenhuma opção de compatibilidade ou modo de fábrica foi alterada no equipamento.
+- A função Lua `libtpap.get_port` resolve a constante `30001`; o servidor contém TLS e autenticação SPAKE2+, além de um canal TMP. Isso exige um transporte/autenticação próprios; trocar a porta do cliente SSH não basta.
+- O firmware examinado contém o controlador ACS em `admin/mobile_app/network_optimize`, mas não um arquivo de controlador `admin/network_optimize`. Não foi demonstrada uma rota HTTPS alternativa para otimização.
+
+Testes feitos pelo operador no Terminal/SSH do HA na rede do X50: TCP/20001 retornou `Connection refused`, código 1; TCP/30001 conectou, código 0. Não foram enviados login, análise ou aplicação. A porta aberta é coerente com TPAP no firmware, mas não prova handshake, identidade, autenticação nem operação ACS funcionando no dispositivo.
+
+Direção de compatibilidade: preservar o transporte SSH/TMP validado no M9 e acrescentar TPAP separadamente, compartilhando as regras de recomendação, IDs persistentes, cooldown, verificação e entidades MQTT. A 0.8.0-dev.2 ainda não implementa TPAP. Nenhuma mudança de runtime ou rebuild é necessária para registrar estes resultados; a homologação do X50 continua pendente.
