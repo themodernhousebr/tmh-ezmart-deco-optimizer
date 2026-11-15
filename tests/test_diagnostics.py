@@ -38,6 +38,15 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(d.error_summary(error), {'category': 'api', 'api_code': -1})
         self.assertEqual(d.error_summary(RuntimeError('secret')), {'category': 'unknown'})
 
+    def test_transport_failure_preserves_session_but_auth_rejection_does_not(self):
+        class TransportError(Exception):
+            def __init__(self, code): self.status_code = code
+        for code in (None, 500, 503):
+            self.assertTrue(d.transient_transport(TransportError(code)))
+        for code in (401, 403, 404):
+            self.assertFalse(d.transient_transport(TransportError(code)))
+        self.assertFalse(d.transient_transport(ValueError('private')))
+
     def test_malformed_response_and_nonfinite(self):
         with self.assertRaises(ValueError):
             d.project('acs', ['unexpected'])

@@ -225,8 +225,13 @@ def scan_once(reader, before, options, data, save, monotonic=time.monotonic, sle
         reader.allow_scan = True
         ack = json.loads(reader.request(SCAN))
         reader.allow_scan = False
-        if not isinstance(ack, dict) or ack.get('error_code') != 0:
-            report['state'] = 'scan_rejected'
+        ack_code = ack.get('error_code') if isinstance(ack, dict) else None
+        report['ack_is_object'] = isinstance(ack, dict)
+        report['ack_has_error_code'] = isinstance(ack, dict) and 'error_code' in ack
+        if type(ack_code) is int:
+            report['ack_api_code'] = ack_code
+        if not isinstance(ack, dict) or type(ack_code) is not int or ack_code != 0:
+            report['state'] = 'scan_rejected' if type(ack_code) is int and ack_code != 0 else 'scan_ack_unrecognized'
         else:
             report['state'] = 'scan_timeout'
             deadline = monotonic() + wait

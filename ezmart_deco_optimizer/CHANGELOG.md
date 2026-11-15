@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0-dev.2
+
+- Falhas conhecidas de transporte preservam sessão e repetem consulta no intervalo configurado, sem novo login.
+- Erros de consulta classificados sem texto bruto; 401/403 e erros desconhecidos mantêm cooldown conservador.
+- ACK de scan distingue recusa numérica de resposta desconhecida e inclui apenas metadados seguros.
+- Prazo de cooldown já persistido por versões anteriores continua respeitado.
+
 ## 0.5.0-dev.1
 
 - Varredura TMP manual autorizada, com consulta de estado antes/depois e prazo configurável.

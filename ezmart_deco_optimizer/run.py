@@ -7,7 +7,7 @@ from pathlib import Path
 import signal
 import threading
 import time
-from diagnostics import PROBES, probe, error_summary
+from diagnostics import PROBES, probe, error_summary, transient_transport
 
 COOLDOWN = 900
 STOP = threading.Event()
@@ -49,7 +49,7 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.5.0-dev.1; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.5.0-dev.2; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
     probe_results = {}
@@ -85,7 +85,7 @@ def main():
         try:
             cycle += 1
             LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': options.get('tmp_action', 'read') == 'read', 'available': True, 'cycle': cycle, 'version': '0.5.0-dev.1'}
+            status = {'updated_at': int(time.time()), 'read_only': options.get('tmp_action', 'read') == 'read', 'available': True, 'cycle': cycle, 'version': '0.5.0-dev.2'}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
@@ -145,7 +145,13 @@ def main():
             save(data / 'status.json', status)
             LOG.info('Ciclo %s concluído; próxima consulta em %s segundos. Resumo em /data/status.json.', cycle, interval)
             STOP.wait(interval)
-        except Exception:
+        except Exception as error:
+            LOG.warning('Falha de consulta: %s', json.dumps(error_summary(error)))
+            if transient_transport(error):
+                save(data / 'status.json', {'updated_at': int(time.time()), 'available': False})
+                LOG.warning('Falha temporária de transporte; sessão preservada. Nova consulta em %s segundos, sem login.', interval)
+                STOP.wait(interval)
+                continue
             # Unknown errors may represent an invalid session: do not retry immediately.
             client = None
             due = time.time() + COOLDOWN

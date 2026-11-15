@@ -81,3 +81,11 @@ def error_summary(error):
     if type(api_code) is int:
         out['api_code'] = api_code
     return out
+
+
+def transient_transport(error):
+    """Known transport failures don't establish that credentials/session are invalid."""
+    if type(error).__name__ in ('TimeoutError', 'ConnectionError'):
+        return True
+    code = getattr(error, 'status_code', None)
+    return type(error).__name__ == 'TransportError' and (code is None or (type(code) is int and 500 <= code <= 599))
