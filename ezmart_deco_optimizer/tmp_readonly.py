@@ -1,4 +1,4 @@
-"""Experimental TMP state reader. No scan, optimize, shell or raw command API."""
+"""TMP state reader and explicitly requested scan. No optimize, shell or raw command API."""
 import hashlib
 import hmac
 import json
@@ -11,6 +11,7 @@ import zlib
 
 ALLOC = 1
 QUALITY = 0x4265
+SCAN = 0x4263
 MAX_RESULT = 262144
 
 
@@ -18,8 +19,8 @@ class ProtocolError(Exception):
     pass
 
 
-def packet(opcode, body, transaction, sequence, offset=0, pull=False):
-    if opcode not in (ALLOC, QUALITY):
+def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False):
+    if opcode not in (ALLOC, QUALITY) and not (allow_scan and opcode == SCAN):
         raise ProtocolError()
     business = struct.pack('>BBHBBHIII', 1, 2, opcode, 4 if pull else 2,
                            0, transaction, zlib.crc32(body) if body else 0, len(body), offset) + body
@@ -29,7 +30,8 @@ def packet(opcode, body, transaction, sequence, offset=0, pull=False):
 
 
 class Reader:
-    def __init__(self, channel):
+    def __init__(self, channel, allow_scan=False):
+        self.allow_scan = allow_scan
         self.channel = channel
         self.sequence = 0
         self.transaction = -1
@@ -50,7 +52,7 @@ class Reader:
 
     def send(self, opcode, body, pull=False, offset=0):
         self.sequence += 1
-        self.channel.sendall(packet(opcode, body, self.transaction, self.sequence, offset, pull))
+        self.channel.sendall(packet(opcode, body, self.transaction, self.sequence, offset, pull, self.allow_scan))
 
     def request(self, opcode):
         self.deadline = time.monotonic() + 20
@@ -178,7 +180,11 @@ def run_probe(options, data, save, clock=time.time):
             raise ProtocolError()
         del token
         stage = 'quality_read'
-        return project_quality(json.loads(reader.request(QUALITY)))
+        before = project_quality(json.loads(reader.request(QUALITY)))
+        if options.get('tmp_action', 'read') == 'scan':
+            stage = 'scan'
+            return scan_once(reader, before, options, data, save)
+        return before
     except Exception:
         # Keep interrupted/failed login guard. Never log exception strings or tokens.
         if stage == 'authentication':
@@ -191,3 +197,62 @@ def run_probe(options, data, save, clock=time.time):
                     resource.close()
                 except Exception:
                     pass
+
+
+def scan_once(reader, before, options, data, save, monotonic=time.monotonic, sleep=time.sleep):
+    """Durable at-most-once scan dispatch. Never repeats an uncertain action."""
+    request_id = options.get('tmp_scan_request_id', '')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', request_id):
+        return {'state': 'scan_id_required'}
+    journal = data / 'tmp_scan_journal.json'
+    history = json.loads(journal.read_text()) if journal.exists() else {}
+    if not isinstance(history, dict):
+        return {'state': 'invalid_scan_journal'}
+    if request_id in history:
+        return {'state': 'already_requested', 'report': history[request_id]}
+    if len(history) >= 1000:
+        return {'state': 'scan_history_full'}
+    wait = options.get('tmp_scan_timeout_seconds', 90)
+    if type(wait) is not int or not 30 <= wait <= 180:
+        return {'state': 'invalid_scan_timeout'}
+    if before.get('state') != 'idle':
+        return {'state': 'scan_blocked', 'before': before}
+    report = {'state': 'dispatch_uncertain', 'before': before, 'started_at': int(time.time())}
+    # Commit the ID before sending: crashes/timeouts must not replay a scan.
+    history[request_id] = report
+    save(journal, history)
+    try:
+        reader.allow_scan = True
+        ack = json.loads(reader.request(SCAN))
+        reader.allow_scan = False
+        if not isinstance(ack, dict) or ack.get('error_code') != 0:
+            report['state'] = 'scan_rejected'
+        else:
+            report['state'] = 'scan_timeout'
+            deadline = monotonic() + wait
+            observed_busy = False
+            while monotonic() < deadline:
+                sleep(min(2, max(0, deadline-monotonic())))
+                if monotonic() >= deadline:
+                    break
+                result = project_quality(json.loads(reader.request(QUALITY)))
+                observed_busy |= result.get('state') in ('scanning', 'checking')
+                report['after'] = result
+                if result.get('state') == 'idle':
+                    report['state'] = 'scan_finished' if observed_busy else 'idle_after_ack'
+                    break
+                if result.get('state') in ('api_error', 'unknown', 'unrecognized_response'):
+                    report['state'] = 'scan_result_error'
+                    break
+            report['scan_acknowledged'] = True
+            report['observed_scanning'] = observed_busy
+    except Exception:
+        report['state'] = 'scan_outcome_uncertain'
+    finally:
+        reader.allow_scan = False
+    report['finished_at'] = int(time.time())
+    report['channels_applied'] = False
+    history[request_id] = report
+    save(journal, history)
+    save(data / 'tmp_scan_report.json', report)
+    return report

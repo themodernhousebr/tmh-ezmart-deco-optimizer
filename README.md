@@ -2,7 +2,7 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-Versão 0.4.0-dev.1: piloto residencial somente leitura para uma Mesh Deco mista com M9 principal em AP.
+Versão 0.5.0-dev.1: piloto residencial somente leitura para uma Mesh Deco mista com M9 principal em AP.
 
 Inventário, sessão reutilizada, cooldown após falha, resumo de modelos/firmwares e diagnósticos opcionais de ACS, capacidades Wi-Fi, canais e desempenho. Opções permitem novos testes sem rebuild; salvar e reiniciar o app é suficiente.
 
@@ -19,3 +19,5 @@ O repositório Git é local. Publicação, remoto GitHub e imagens GHCR dependem
 Adicionar repository.yaml e a pasta do app a um GitHub futuro permitirá instalar por repositório personalizado; não implica inclusão no catálogo oficial. Instalação atual: copiar pasta do app para /local_apps e construir pelo Supervisor.
 
 TMP experimental em duas etapas: descobrir identidade SSH sem credenciais e, após configurar a chave, autenticar uma vez e ler o estado. Sem scan ou aplicação. Consulte DOCS.md antes do piloto.
+
+Na 0.5, scan manual foi autorizado e implementado com deduplicação persistente; aplicação de canais permanece bloqueada. Consulte PILOT.md.

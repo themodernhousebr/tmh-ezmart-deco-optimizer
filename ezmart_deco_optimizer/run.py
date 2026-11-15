@@ -49,7 +49,7 @@ def main():
     except Exception:
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
-    LOG.info('Versão 0.4.0-dev.2; intervalo de consultas: %s segundos.', interval)
+    LOG.info('Versão 0.5.0-dev.1; intervalo de consultas: %s segundos.', interval)
     cycle = 0
     previous_summary = None
     probe_results = {}
@@ -75,7 +75,7 @@ def main():
                 # Clear the in-flight guard only after confirmed authentication.
                 save(state, {'next_login': 0})
                 due = 0
-                LOG.info('Sessão autenticada; diagnóstico somente leitura.')
+                LOG.info('Sessão HTTPS autenticada; consultas de monitoramento somente leitura.')
             except Exception:
                 client = None
                 due = time.time() + COOLDOWN
@@ -85,7 +85,7 @@ def main():
         try:
             cycle += 1
             LOG.info('Ciclo %s iniciado.', cycle)
-            status = {'updated_at': int(time.time()), 'read_only': True, 'available': True, 'cycle': cycle, 'version': '0.4.0-dev.2'}
+            status = {'updated_at': int(time.time()), 'read_only': options.get('tmp_action', 'read') == 'read', 'available': True, 'cycle': cycle, 'version': '0.5.0-dev.1'}
             for method in ('get_device_list', 'get_device_mode'):
                 if method in disabled:
                     continue
@@ -130,7 +130,7 @@ def main():
             if options.get('tmp_enabled', False) and not tmp_attempted:
                 tmp_attempted = True
                 from tmp_readonly import run_probe
-                LOG.info('TMP: teste único de identidade/autenticação e estado; sem scan ou otimização.')
+                LOG.info('TMP: sessão manual; ação configurada=%s; aplicação de canais bloqueada.', options.get('tmp_action', 'read'))
                 tmp_result = run_probe(options, data, save)
                 probe_results['tmp'] = {'updated_at': int(time.time()), **tmp_result}
                 LOG.info('Diagnóstico tmp: %s', json.dumps(probe_results['tmp'], ensure_ascii=True))

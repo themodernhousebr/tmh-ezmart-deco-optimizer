@@ -7,5 +7,5 @@ COPY run.py diagnostics.py tmp_readonly.py ./
 LABEL io.hass.name="EZmart Deco Optimizer" \
       io.hass.description="Read-only Deco diagnostics" \
       io.hass.type="addon" \
-      io.hass.version="0.4.0-dev.2"
+      io.hass.version="0.5.0-dev.1"
 CMD ["python", "-u", "/app/run.py"]

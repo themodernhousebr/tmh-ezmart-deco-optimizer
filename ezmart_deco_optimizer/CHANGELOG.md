@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0-dev.1
+
+- Varredura TMP manual autorizada, com consulta de estado antes/depois e prazo configurável.
+- Identificador persistente impede repetir a mesma solicitação após reinício ou resultado incerto.
+- Opcode de aplicação de canais continua bloqueado, inclusive com scan habilitado.
+- Relatório persistido e distinção entre scan observado e idle imediatamente após aceite.
+- 16 testes isolados; varredura real no M9 pendente.
+
 ## 0.4.0-dev.2
 
 - Inclui seletor network_quality na consulta TMP de resultados, sem iniciar scan.
