@@ -30,7 +30,7 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, hardware informado pelo inventário 1.30, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001, login SPAKE2+ e leituras TMP de modo, canais e inventário confirmados no equipamento. Análise de interferência preparada no diagnóstico independente; análise física e aplicação ainda pendentes. O app atual **não implementa TPAP** |
+| X50 como roteador principal, hardware informado pelo inventário 1.30, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001, login SPAKE2+, leituras TMP e resposta ACS com recomendação positiva confirmados no equipamento. Aplicação preparada no diagnóstico independente; aplicação física ainda pendente. O app atual **não implementa TPAP** |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
 O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos: o inventário autenticado do cliente informou hardware **1.30** para os dois X50, apesar da etiqueta V1.0 anteriormente atribuída à unidade. Isso não implica intercambialidade de revisões. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar a aplicação e integrar o transporte X50 ao app, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento HTTPS também depende do firmware e precisa ser conferido.
@@ -86,7 +86,7 @@ Use as credenciais do cliente nos mesmos prompts ocultos. O prazo é de 20 segun
 
 O operador confirmou `readonly_verified` no X50 do cliente em 15/11/2026: 2,114 segundos, modo Router, dois X50 hardware 1.30 com firmware 1.8.4, um principal e um secundário. Os números 10 e 36 vieram de `backhaul` nas bandas 2,4 e 5 GHz; `radio` retornou apenas HT40/HT80. Não são leituras numéricas de canal da rede principal dos clientes Wi-Fi.
 
-O relatório omite senhas Wi-Fi, SSIDs, MACs, nomes de cômodos, IDs e tokens. Os modos acima não buscam interferência e nenhum modo aplica canais; `optimization` continua `not_tested`. O login pode estabelecer uma sessão e uma tentativa recusada pode contar para o bloqueio do equipamento. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
+O relatório omite senhas Wi-Fi, SSIDs, MACs, nomes de cômodos, IDs e tokens. Os modos acima não buscam interferência nem aplicam canais; `optimization` continua `not_tested`. O login pode estabelecer uma sessão e uma tentativa recusada pode contar para o bloqueio do equipamento. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
 
 ### Uma análise de interferência no X50
 
@@ -100,11 +100,53 @@ python3 /tmp/x50_tls_probe.py 192.168.68.1 \
 
 Essa chamada pode iniciar a busca de interferência no equipamento; não é uma consulta passiva. O prazo da análise é separado (30–180 segundos, padrão 120). Com os valores do exemplo, o limite do conjunto é aproximadamente quatro minutos, incluindo login, alocação, leituras e análise. Há um único pedido de análise por execução, sem reenviar após timeout ou falha de envio. Executar o comando novamente inicia outra sessão e pode iniciar outra análise; não há agendamento nem histórico persistente nesse diagnóstico.
 
-`scan_response_received` indica resposta reconhecida, com `scan.need_optimize` e `scan.optimize_item.channel` booleanos coerentes. **Não confirma aplicação**: `apply_command_sent` permanece falso e não existe comando de aplicação habilitado. `estimated_apply_seconds` é a estimativa fornecida pelo Deco para uma eventual aplicação, não a duração da análise. Mesmo uma resposta demorada pode vir de cache: `fresh_scan_confirmed: false` e `result_may_be_cached: true` preservam essa limitação. O firmware também pode suprimir a recomendação por 1800 segundos após uma aplicação.
+`scan_response_received` indica resposta reconhecida, com `scan.need_optimize` e `scan.optimize_item.channel` booleanos coerentes. **Não confirma aplicação**: `apply_command_sent` permanece falso e o modo `--scan-only` não habilita aplicação. `estimated_apply_seconds` é a estimativa fornecida pelo Deco para uma eventual aplicação, não a duração da análise. Mesmo uma resposta demorada pode vir de cache: `fresh_scan_confirmed: false` e `result_may_be_cached: true` preservam essa limitação. O firmware também pode suprimir a recomendação por 1800 segundos após uma aplicação.
 
 `reads.channels` contém a observação anterior; `channels_after_scan` contém a posterior. `channel_comparison` compara somente campos numéricos na mesma banda e seção (`radio`, `host` ou `backhaul`), identificando comparação completa, parcial ou indisponível. Mudança observada não é atribuída ao diagnóstico nem prova melhora. Se a observação posterior falhar, a resposta de análise recebida fica preservada em `scan`, mas o resultado geral não declara o diagnóstico completo. Um perfil diferente retorna `scan_target_unsupported` antes do pedido; uma leitura prévia incompleta retorna `scan_preflight_failed`.
 
-Esse modo passou pelos testes simulados e aguarda a análise física do X50 do cliente. A aplicação e integração TPAP ao app continuam pendentes.
+O operador confirmou a resposta física dessa análise em 15/11/2026: API 0, `need_optimize: true`, `optimize_item.channel: true`, 13,414 segundos de resposta e 15,049 segundos no conjunto. Os valores de backhaul permaneceram 10 e 36; nenhum comando de aplicação foi enviado. Isso valida a chamada e o formato da recomendação, sem comprovar frescor da medição.
+
+### Aplicação piloto no X50 e recuperação
+
+A revisão 6 acrescenta `--optimize` e `--verify-only`, ainda independentes do app. A aplicação só é habilitada em `--optimize`, após o mesmo perfil de principal ser conferido, um novo pedido de análise retornar recomendação positiva e a leitura de canais posterior estar completa. Não reutiliza como autorização um JSON antigo de análise. `optimization_not_needed` significa que essa execução não aplicou nada.
+
+Execute uma vez no HA do cliente, com a versão atual do diagnóstico em `/tmp`:
+
+```sh
+python3 /tmp/x50_tls_probe.py 192.168.68.1 \
+  --expected-sha256 IMPRESSAO_OBTIDA_NESTE_X50 \
+  --timeout 20 --optimize --request-id x50-opt-001 \
+  --journal /config/ezmart_x50_apply_journal.json \
+  > /config/x50_optimize_resultado.json
+```
+
+**Pode haver interrupção temporária do Wi-Fi.** As credenciais são digitadas com entrada oculta e não vão para os arquivos. A análise espera até 120 segundos e a resposta de aplicação até 60; ambos têm uma única tentativa. Depois, o diagnóstico espera 30 segundos e procura três leituras consecutivas iguais, com intervalos de dez segundos, no máximo seis observações dentro de uma janela de 120 segundos. Cada observação abre uma sessão autenticada nova, exclusivamente para leituras, mantendo o certificado fixado. Falhas transitórias reiniciam a contagem de estabilidade; rejeição de autenticação, identidade divergente ou protocolo inválido interrompem a verificação. Com esses prazos, reserve até aproximadamente oito minutos para o conjunto.
+
+O registro `/config/ezmart_x50_apply_journal.json` e seu arquivo `.lock` impedem concorrência e repetição acidental. A tentativa é gravada e sincronizada antes do envio; `apply_command_attempted` é conservador, podendo ficar verdadeiro mesmo que um envio interrompido não tenha chegado ao equipamento. Repetir o mesmo ID retorna `already_requested`, sem conexão. Outro ID também é bloqueado enquanto houver aplicação anterior sem aceite e verificação estável; após ambos, há intervalo mínimo de 1800 segundos. Preserve esse registro: apagá-lo, mudar seu caminho ou usar outra instalação elimina essa proteção local. O JSON de resultado compartilhável é um arquivo separado.
+
+Se o Terminal desconectar, a saída redirecionada pode ficar incompleta; a reserva persistente continua protegendo o pedido. Após reconectar, use **somente a verificação do mesmo ID e registro**:
+
+```sh
+python3 /tmp/x50_tls_probe.py 192.168.68.1 \
+  --expected-sha256 IMPRESSAO_OBTIDA_NESTE_X50 \
+  --timeout 20 --verify-only --request-id x50-opt-001 \
+  --journal /config/ezmart_x50_apply_journal.json \
+  > /config/x50_verificacao_resultado.json
+```
+
+Esse modo não envia análise nem aplicação. Se a resposta original de aceite se perdeu, a leitura posterior não a inventa. Não renomeie o pedido para contornar um resultado incerto.
+
+Interpretação do relatório:
+
+- `apply_ack.state: accepted`: o Deco retornou API 0 à aplicação; não prova melhora.
+- `verification.state: stable`: três observações consecutivas iguais, cobrindo todos os parâmetros da referência anterior.
+- `conclusion: acknowledged_with_channel_change`: houve aceite e estabilidade, com mudança numérica em algum canal observado. Consulte `verification.channel_comparison` para saber banda e seção.
+- `acknowledged_without_observed_channel_change`: houve aceite e estabilidade, sem troca numérica observada. `verification.radio_changes` também mostra alterações de largura, quando presentes. Isso não é promessa de ganho ou de recuperação de câmera.
+- `unconfirmed_*`, `verification_incomplete`, `apply_rejected` ou erro de registro: não considerar otimização confirmada; nenhuma reaplicação automática ocorre.
+
+`elapsed_seconds` mede a ação completa, incluindo a verificação; `request_session_seconds` e os contadores de mensagens/bytes referem-se à sessão inicial. Uma verificação posterior preserva os horários da ação original e registra `last_verified_at`/`last_verification_seconds`. Os dados de WLAN continuam separados por `radio`, `host` e `backhaul`, sem atribuir leituras ausentes à rede principal.
+
+A aplicação foi validada em simulação, incluindo perda de resposta e falha de gravação, e **aguarda o teste físico no X50**. O app/MQTT segue com o transporte M9 já validado; incorporar TPAP ao app é uma etapa posterior.
 
 ## Automações e acompanhamento
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Standalone X50 TLS, authentication, TMP reads and optional interference scan.
+"""Standalone X50 TLS/TMP diagnostics and explicitly requested ACS optimization.
 
-Only --scan-only requests an interference analysis, once. No mode applies channels.
+Only --optimize can apply channels, after a positive analysis and durable reservation.
+--verify-only observes a journaled attempt without scanning or applying again.
 
 Python 3.9+; authenticated modes require PyCryptodome. The public CA comes from the official
 X50 1.8.4 firmware documented in RESEARCH.md. It is scoped to this connection;
@@ -11,17 +12,24 @@ it is never installed in the operating system's trust store.
 import argparse
 import base64
 import binascii
+from contextlib import contextmanager
+import fcntl
 import getpass
 import hashlib
 import hmac
 import ipaddress
 import json
+import math
+import os
+from pathlib import Path
 import re
 import secrets
 import socket
 import ssl
+import stat
 import struct
 import sys
+import tempfile
 import time
 import warnings
 import zlib
@@ -36,6 +44,7 @@ MAX_CHANNEL_BODY = 65535 + 16 + 16  # TMP business + transport + CCM tag.
 MAX_TMP_RESULT = 262144
 READ_OPS = {"mode": 0x40A0, "channels": 0x4009, "devices": 0x400F}
 ACS_SCAN = 0x424F
+ACS_APPLY = 0x4250
 P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 # RFC 9383 P-256 points, also present verbatim in the X50 1.8.4 library.
 SPAKE_M = bytes.fromhex(
@@ -389,7 +398,7 @@ class TMPChannel:
 
 
 class TMPReader:
-    """Fixed reads and, when enabled, one ACS analysis; never channel application."""
+    """Fixed reads; ACS analysis/application require separate one-use gates."""
 
     def __init__(self, channel, allow_scan=False):
         self.channel = channel
@@ -397,6 +406,8 @@ class TMPReader:
         self.transaction = -1
         self.allow_scan = allow_scan
         self.scan_transaction = None
+        self.reserve_apply = None
+        self.apply_transaction = None
 
     def send(self, opcode, body, offset=0, pull=False):
         if opcode == ACS_SCAN and self.allow_scan:
@@ -408,6 +419,15 @@ class TMPReader:
             else:
                 # Reserve before I/O: a partial write must never be retried.
                 self.scan_transaction = self.transaction
+        elif opcode == ACS_APPLY and self.reserve_apply is not None:
+            if pull:
+                if self.apply_transaction != self.transaction:
+                    raise ProtocolError("apply_pull_without_request")
+            elif self.apply_transaction is not None:
+                raise ProtocolError("apply_already_attempted")
+            else:
+                self.apply_transaction = self.transaction
+                self.reserve_apply()  # Must finish durable storage before any bytes.
         elif opcode not in (1, *READ_OPS.values()):
             raise ProtocolError("tmp_opcode_not_allowed")
         self.sequence += 1
@@ -421,6 +441,8 @@ class TMPReader:
         self.channel.send(header + struct.pack(">I", crc) + business)
         if is_scan:
             self.channel.report["scan"]["request_sent"] = True
+        if opcode == ACS_APPLY and not pull:
+            self.channel.report["apply_command_sent"] = True
 
     def request(self, opcode, timeout):
         self.channel.deadline = time.monotonic() + timeout
@@ -599,19 +621,24 @@ def compare_channels(before, after):
             "observed_channels_changed": bool(changes) if common else None}
 
 
+def supported_target(result):
+    reads = result["reads"]
+    masters = [node for node in reads["devices"]["data"]["nodes"] if node.get("role") == "master"]
+    return (reads["mode"]["data"].get("mode") == "Router" and len(masters) == 1
+            and masters[0].get("model") == "X50" and masters[0].get("hardware") == "1.30"
+            and masters[0].get("firmware") == "1.8.4 Build 26051413 Rel. 27460")
+
+
 def scan_information(reader, timeout, scan_timeout, result):
     """One explicitly selected ACS analysis on the physically identified profile."""
     result["stage"] = "scan_preflight"
     if result["state"] != "readonly_verified":
         result.update(state="scan_preflight_failed")
         return
-    reads = result["reads"]
-    masters = [node for node in reads["devices"]["data"]["nodes"] if node.get("role") == "master"]
-    if (reads["mode"]["data"].get("mode") != "Router" or len(masters) != 1
-            or masters[0].get("model") != "X50" or masters[0].get("hardware") != "1.30"
-            or masters[0].get("firmware") != "1.8.4 Build 26051413 Rel. 27460"):
+    if not supported_target(result):
         result.update(state="scan_target_unsupported")
         return
+    reads = result["reads"]
     scan = result["scan"]
     result["stage"] = "scan"
     started = time.monotonic()
@@ -633,8 +660,45 @@ def scan_information(reader, timeout, scan_timeout, result):
     result["stage"] = "complete"
 
 
+def apply_information(reader, apply_timeout, result, checkpoint):
+    if result["state"] != "scan_response_received":
+        return
+    if result["scan"].get("need_optimize") is not True:
+        result["state"] = "optimization_not_needed"
+        return
+    result.update(state="ready_to_apply", stage="apply",
+                  channels_before_apply=result["channels_after_scan"])
+
+    def reserve():
+        result.update(state="apply_outcome_uncertain", apply_command_attempted=True,
+                      apply_attempted_at=int(time.time()), apply_ack={"state": "unavailable"})
+        checkpoint(result)
+
+    reader.reserve_apply = reserve
+    started = time.monotonic()
+    try:
+        body = reader.request(ACS_APPLY, apply_timeout)
+        try:
+            document = json.loads(body.decode("utf-8"), object_pairs_hook=unique_object)
+        except (ValueError, UnicodeError, RecursionError):
+            raise ProtocolError("invalid_apply_json") from None
+        code = api_code(document)
+        accepted = code == 0
+        result.update(state="apply_acknowledged" if accepted else "apply_rejected",
+                      optimization="acknowledged" if accepted else "rejected",
+                      apply_ack={"state": "accepted" if accepted else "rejected", "api_code": code})
+    except (ProtocolError, OSError) as error:
+        result.update(state="apply_outcome_uncertain", optimization="unconfirmed")
+        result["apply_error"] = str(error) if isinstance(error, ProtocolError) else "transport_error"
+    finally:
+        reader.reserve_apply = None
+        result["apply_response_seconds"] = round(time.monotonic() - started, 3)
+    checkpoint(result)
+
+
 def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None,
-          read_info=False, scan_only=False, scan_timeout=120):
+          read_info=False, scan_only=False, scan_timeout=120, optimize=False,
+          apply_timeout=60, _checkpoint=None, _report=None):
     # Literal unicast IPs avoid DNS delays and accidental broadcast discovery.
     address = ipaddress.ip_address(host)
     if address.is_unspecified or address.is_multicast:
@@ -643,8 +707,12 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         raise ValueError("O prazo deve estar entre 1 e 30 segundos.")
     if type(scan_timeout) is not int or not 30 <= scan_timeout <= 180:
         raise ValueError("O prazo da análise deve estar entre 30 e 180 segundos.")
-    if read_info and scan_only:
-        raise ValueError("Selecione somente --read-info ou --scan-only.")
+    if sum(bool(mode) for mode in (read_info, scan_only, optimize)) > 1:
+        raise ValueError("Selecione apenas um modo de operação.")
+    if optimize and (not callable(_checkpoint) or not isinstance(_report, dict)):
+        raise ValueError("A aplicação exige reserva persistente; use --optimize com --journal.")
+    if type(apply_timeout) is not int or not 10 <= apply_timeout <= 180:
+        raise ValueError("O prazo de aplicação deve estar entre 10 e 180 segundos.")
     if expected_sha256 is not None:
         if not re.fullmatch(r"[a-fA-F0-9]{64}", expected_sha256):
             raise ValueError("A identidade esperada deve ter 64 caracteres hexadecimais.")
@@ -661,10 +729,10 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         if not isinstance(password, str) or not 1 <= len(password.encode("utf-8")) <= 256 or "\0" in password:
             raise ValueError("Informe uma senha não vazia de até 256 bytes, sem caractere nulo.")
         crypto_modules()  # Missing dependency must not consume a device login attempt.
-    if (read_info or scan_only) and password is None:
+    if (read_info or scan_only or optimize) and password is None:
         raise ValueError("A leitura/análise exige autenticação com senha e certificado fixado.")
     result = {
-        "probe_version": 5,
+        "probe_version": 6,
         "state": "not_connected",
         "port": PORT,
         "vendor_chain_verified": False,
@@ -680,12 +748,15 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         result.update(password_proof_attempted=False, password_proof_sent=False,
                       server_proof_verified=False, account_credentials_verified=False,
                       account_role_verified=False, session_token_received=False)
-    if scan_only:
+    if scan_only or optimize:
         result.update(apply_command_sent=False, scan={
             "state": "not_requested", "request_attempted": False, "request_sent": False,
             "response_received": False, "fresh_scan_confirmed": False,
             "result_may_be_cached": True,
         })
+    if optimize:
+        _report.update(result)
+        result = _report
     started = time.monotonic()
     try:
         context = make_context()
@@ -730,11 +801,14 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
                         if result["state"] == "pake_parameters_received":
                             shared_key = authenticate(tls, deadline, message["result"], owner_email,
                                                       password, user_random, result)
-                            if (read_info or scan_only) and shared_key is not None:
-                                reader = read_information(tls, shared_key, timeout, result, allow_scan=scan_only)
-                                if scan_only:
+                            if (read_info or scan_only or optimize) and shared_key is not None:
+                                reader = read_information(tls, shared_key, timeout, result,
+                                                          allow_scan=scan_only or optimize)
+                                if scan_only or optimize:
                                     scan_information(reader, timeout, scan_timeout, result)
-                # Each mode closes this session; no retries or channel application.
+                                if optimize:
+                                    apply_information(reader, apply_timeout, result, _checkpoint)
+                # Each mode closes this session; application is never retried.
     except ProtocolError as error:
         result.update(state="protocol_error", protocol_error=str(error))
     except ssl.SSLCertVerificationError as error:
@@ -751,6 +825,238 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
     return result
 
 
+class ActionStorageError(Exception):
+    pass
+
+
+def atomic_json(path, document):
+    """Sync the file and directory before allowing a network mutation."""
+    temporary = None
+    try:
+        encoded = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2).encode()
+        if len(encoded) > 2 * 1024 * 1024:
+            raise ValueError()
+        fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except (OSError, ValueError, TypeError):
+        raise ActionStorageError() from None
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+@contextmanager
+def action_store(path):
+    path = Path(path)
+    if not path.is_absolute():
+        raise ActionStorageError()
+    lock_fd = os.open(str(path) + ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(lock_fd, "r+") as lock:
+        if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode):
+            raise ActionStorageError()
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            document = {"version": 1, "actions": {}}
+        else:
+            with os.fdopen(fd, "r") as handle:
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size > 2 * 1024 * 1024:
+                    raise ActionStorageError()
+                document = json.load(handle, object_pairs_hook=unique_object)
+        if (not isinstance(document, dict) or document.get("version") != 1
+                or not isinstance(document.get("actions"), dict) or len(document["actions"]) > 128):
+            raise ActionStorageError()
+        for request_id, entry in document["actions"].items():
+            if (not re.fullmatch(r"[A-Za-z0-9_-]{1,48}", request_id) or not isinstance(entry, dict)
+                    or not isinstance(entry.get("target"), str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", entry["target"])):
+                raise ActionStorageError()
+            report = entry.get("report")
+            if (not isinstance(report, dict) or report.get("request_id") != request_id
+                    or type(report.get("apply_command_attempted")) is not bool):
+                raise ActionStorageError()
+            if any(key in report and not isinstance(report[key], dict)
+                   for key in ("apply_ack", "verification")):
+                raise ActionStorageError()
+            if report["apply_command_attempted"]:
+                at = report.get("apply_attempted_at")
+                if type(at) not in (int, float) or not math.isfinite(at) or at < 0:
+                    raise ActionStorageError()
+                baseline = report.get("channels_before_apply")
+                if not isinstance(baseline, dict) or baseline.get("state") != "available":
+                    raise ActionStorageError()
+                clean = project_read("channels", json.dumps({
+                    "error_code": 0, "result": baseline.get("data")}).encode())
+                if clean != baseline or clean["state"] != "available":
+                    raise ActionStorageError()
+        yield document["actions"], lambda: atomic_json(path, document)
+
+
+def radio_parameters(snapshot):
+    if snapshot.get("state") != "available":
+        return {}
+    return {(band, section, key): value
+            for band, sections in snapshot["data"].items()
+            for section, fields in sections.items() for key, value in fields.items()}
+
+
+def verify_application(report, connection, timeout, verify_timeout, checkpoint, delay):
+    """New authenticated READ-ONLY sessions; no reference to a scan/apply reader."""
+    verification = {"state": "waiting", "attempts": 0, "failures": 0,
+                    "stable_samples": 0, "observations": [], "started_at": int(time.time())}
+    report.update(state="verifying", stage="verification", verification=verification,
+                  conclusion="verification_in_progress")
+    checkpoint(report)
+    time.sleep(delay)
+    deadline = time.monotonic() + verify_timeout
+    baseline = radio_parameters(report["channels_before_apply"])
+    previous = None
+    for _ in range(6):
+        remaining = deadline - time.monotonic()
+        if remaining < 5:
+            break
+        # Login + ALLOC + three reads each use this per-stage bound.
+        observed = probe(**connection, timeout=min(timeout, remaining / 5), read_info=True)
+        verification["attempts"] += 1
+        verification["observations"].append({"state": observed["state"], "at": int(time.time())})
+        current = observed.get("reads", {}).get("channels", {"state": "unavailable"})
+        parameters = radio_parameters(current)
+        if (observed["state"] == "readonly_verified" and supported_target(observed)
+                and baseline.keys() <= parameters.keys()):
+            verification["last_available"] = current
+            verification["stable_samples"] = verification["stable_samples"] + 1 if parameters == previous else 1
+            previous = parameters
+            if verification["stable_samples"] >= 3:
+                verification["state"] = "stable"
+                break
+        else:
+            verification["failures"] += 1
+            verification["stable_samples"] = 0
+            previous = None
+            # Never repeat rejected credentials, unexpected identities or corrupt protocol.
+            if observed["state"] not in ("timeout", "connection_refused", "connection_error",
+                                          "tls_error", "readonly_incomplete"):
+                verification["state"] = "verification_blocked"
+                break
+        verification["state"] = "observing"
+        checkpoint(report)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(10, remaining))
+    if verification["state"] not in ("stable", "verification_blocked"):
+        verification["state"] = "incomplete"
+    verification["finished_at"] = int(time.time())
+    final = verification.get("last_available")
+    if final:
+        verification["channel_comparison"] = compare_channels(report["channels_before_apply"], final)
+        after = radio_parameters(final)
+        verification["radio_changes"] = [
+            {"band": b, "section": s, "parameter": k, "before": baseline[b, s, k], "after": after[b, s, k]}
+            for b, s, k in sorted(baseline.keys() & after.keys()) if baseline[b, s, k] != after[b, s, k]]
+    ack = report.get("apply_ack", {}).get("state")
+    if ack == "rejected":
+        report.update(state="apply_rejected", conclusion="apply_rejected")
+    elif verification["state"] != "stable":
+        report.update(state="verification_incomplete", conclusion="verification_incomplete")
+    else:
+        changed = verification["channel_comparison"]["observed_channels_changed"]
+        suffix = "with_channel_change" if changed else "without_observed_channel_change"
+        report.update(state="apply_acknowledged" if ack == "accepted" else "apply_outcome_uncertain",
+                      conclusion=("acknowledged_" if ack == "accepted" else "unconfirmed_") + suffix)
+    report["stage"] = "complete"
+    checkpoint(report)
+
+
+def run_action(host, expected_sha256, owner_email, password, *, request_id, journal,
+               verify_only=False, timeout=20, scan_timeout=120, apply_timeout=60, verify_timeout=120):
+    """Persisted one-shot application and recovery, isolated from the app runtime."""
+    if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,48}", request_id):
+        raise ValueError("Informe --request-id com 1 a 48 letras, números, hífen ou sublinhado.")
+    address = ipaddress.ip_address(host)
+    if address.is_unspecified or address.is_multicast or not re.fullmatch(r"[a-fA-F0-9]{64}", expected_sha256 or ""):
+        raise ValueError("A ação exige IP do principal e --expected-sha256 válido.")
+    for value, low, high in ((timeout, 1, 30), (scan_timeout, 30, 180),
+                             (apply_timeout, 10, 180), (verify_timeout, 30, 300)):
+        if type(value) is not int or not low <= value <= high:
+            raise ValueError("Prazo inválido para a ação.")
+    target = hashlib.sha256((str(address) + "|" + expected_sha256.lower()).encode()).hexdigest()
+    connection = dict(host=str(address), expected_sha256=expected_sha256,
+                      owner_email=owner_email, password=password)
+    report = {}
+    action_started = time.monotonic()
+    try:
+        with action_store(journal) as (actions, save):
+            entry = actions.get(request_id)
+            if entry and entry["target"] != target:
+                return {"state": "target_mismatch"}
+            if entry and not verify_only:
+                return {"state": "already_requested", "report": entry["report"]}
+            if verify_only:
+                if not entry or not entry["report"]["apply_command_attempted"]:
+                    return {"state": "nothing_to_verify"}
+                report = entry["report"]
+            else:
+                if len(actions) >= 128:
+                    return {"state": "action_history_full"}
+                for previous in actions.values():
+                    prior = previous["report"]
+                    if previous["target"] != target or not prior["apply_command_attempted"]:
+                        continue
+                    if (prior.get("verification", {}).get("state") != "stable"
+                            or prior.get("apply_ack", {}).get("state") != "accepted"):
+                        return {"state": "previous_apply_unverified", "previous_request_id": prior["request_id"]}
+                    remaining = prior["apply_attempted_at"] + 1800 - time.time()
+                    if remaining > 0:
+                        return {"state": "apply_cooldown", "remaining_seconds": math.ceil(remaining)}
+                report = {"request_id": request_id, "state": "preflight_reserved",
+                          "started_at": int(time.time()), "apply_command_attempted": False}
+                actions[request_id] = {"target": target, "report": report}
+
+            def checkpoint(current):
+                actions[request_id]["report"] = current
+                save()
+
+            checkpoint(report)  # Consume the ID before any login or active scan.
+            try:
+                if not verify_only:
+                    probe(**connection, timeout=timeout, scan_timeout=scan_timeout, optimize=True,
+                          apply_timeout=apply_timeout, _checkpoint=checkpoint, _report=report)
+                    if "elapsed_seconds" in report:
+                        report["request_session_seconds"] = report.pop("elapsed_seconds")
+                    checkpoint(report)
+                if report["apply_command_attempted"]:
+                    delay = max(0, 30 - (time.time() - report["apply_attempted_at"])) if verify_only else 30
+                    verify_application(report, connection, timeout, verify_timeout, checkpoint, delay)
+                if verify_only:
+                    report["last_verified_at"] = int(time.time())
+            except KeyboardInterrupt:
+                report.update(state="interrupted", conclusion="verification_incomplete")
+            if verify_only:
+                report["last_verification_seconds"] = round(time.monotonic() - action_started, 3)
+            else:
+                report["finished_at"] = int(time.time())
+                report["elapsed_seconds"] = round(time.monotonic() - action_started, 3)
+            checkpoint(report)
+            return report
+    except BlockingIOError:
+        return {"state": "action_in_progress"}
+    except (ActionStorageError, OSError, ValueError, TypeError, KeyError, ProtocolError):
+        return {"state": "action_storage_or_state_error", "retry_automatically": False,
+                "apply_may_have_been_attempted": report.get("apply_command_attempted")}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host", help="IP do X50 principal")
@@ -765,12 +1071,24 @@ def main():
                        help="Login e leitura única de modo, canais e inventário; sem varredura")
     modes.add_argument("--scan-only", action="store_true",
                        help="Uma análise de interferência no X50 1.30/1.8.4 roteador; nunca aplica canais")
+    modes.add_argument("--optimize", action="store_true",
+                       help="Analisar e aplicar uma vez se recomendado; pode interromper o Wi-Fi")
+    modes.add_argument("--verify-only", action="store_true",
+                       help="Verificar tentativa registrada; não analisa nem reaplica")
+    parser.add_argument("--request-id", help="Identificador único do pedido de aplicação/verificação")
+    parser.add_argument("--journal", default="/config/ezmart_x50_apply_journal.json",
+                        help="Registro persistente de tentativas; preserve-o entre execuções")
+    parser.add_argument("--apply-timeout", type=int, default=60)
+    parser.add_argument("--verify-timeout", type=int, default=120)
     parser.add_argument("--scan-timeout", type=int, default=120,
                         help="Prazo da análise: 30 a 180 segundos (padrão: 120)")
     args = parser.parse_args()
     owner_email = None
     password = None
-    login = args.authenticate or args.read_info or args.scan_only
+    action = args.optimize or args.verify_only
+    if action and not args.request_id:
+        parser.error("A aplicação/verificação exige --request-id.")
+    login = args.authenticate or args.read_info or args.scan_only or action
     if args.pake_parameters or login:
         if not args.expected_sha256:
             parser.error("A negociação/login exige --expected-sha256.")
@@ -796,11 +1114,21 @@ def main():
         options = {"read_info": True} if args.read_info else {}
         if args.scan_only:
             options = {"scan_only": True, "scan_timeout": args.scan_timeout}
-        result = probe(args.host, args.timeout, args.expected_sha256,
-                       owner_email=owner_email, password=password, **options)
+        if action:
+            result = run_action(args.host, args.expected_sha256, owner_email, password,
+                                request_id=args.request_id, journal=args.journal, verify_only=args.verify_only,
+                                timeout=args.timeout, scan_timeout=args.scan_timeout,
+                                apply_timeout=args.apply_timeout, verify_timeout=args.verify_timeout)
+        else:
+            result = probe(args.host, args.timeout, args.expected_sha256,
+                           owner_email=owner_email, password=password, **options)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if action:
+        return 0 if (result.get("conclusion", "").startswith("acknowledged_")
+                     and result.get("verification", {}).get("state") == "stable"
+                     or result["state"] == "optimization_not_needed") else 1
     success = ("scan_response_received",) if args.scan_only else (
         "readonly_verified",) if args.read_info else ("authentication_verified",) if args.authenticate else (
         "pake_parameters_received",) if args.pake_parameters else ("tls_verified",)

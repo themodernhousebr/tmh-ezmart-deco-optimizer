@@ -5,9 +5,11 @@ import hmac
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import ssl
 import struct
+import tempfile
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -255,7 +257,7 @@ class AuthenticationProbeTests(unittest.TestCase):
 
     def run_server(self, password=PASSWORD, change_params=None, change_reply=None,
                    pin=PIN, send_error=None, read_info=False, channel_peer=None,
-                   scan_only=False, scan_timeout=120):
+                   scan_only=False, scan_timeout=120, optimize=False, checkpoint=None, report=None):
         """Independent verifier role, replying to each actual framed request.
 
         Never uses the production prover/transcript helpers to build its proof.
@@ -356,7 +358,8 @@ class AuthenticationProbeTests(unittest.TestCase):
                 probe.socket, "create_connection", return_value=raw) as connect:
             result = probe.probe("192.168.68.1", expected_sha256=pin,
                                  owner_email=self.EMAIL, password=password, read_info=read_info,
-                                 scan_only=scan_only, scan_timeout=scan_timeout)
+                                 scan_only=scan_only, scan_timeout=scan_timeout, optimize=optimize,
+                                 _checkpoint=checkpoint, _report=report)
         self.assertEqual(connect.call_count, 1)
         tls.__exit__.assert_called_once()
         for secret in (self.EMAIL, self.PASSWORD, password, "PRIVATE", "dev_confirm", "user_share",
@@ -493,11 +496,12 @@ class ReadOnlyPeer:
     """Independent framed TMP server over CCM; all traffic stays in memory."""
 
     def __init__(self, mutate_wire=None, mutate_tmp=None, api_error=False,
-                 responses=None, on_request=None):
+                 responses=None, on_request=None, allow_apply=False):
         self.mutate_wire, self.mutate_tmp = mutate_wire, mutate_tmp
         self.api_error = api_error
         self.responses = responses or {}
         self.on_request = on_request
+        self.allow_apply = allow_apply
         self.sequence = 0x12345678
         self.client_sequences = []
         self.requests = []
@@ -567,7 +571,8 @@ class ReadOnlyPeer:
             assert kind == 2 and offset == 0 and total == len(body)
             self.requests.append(op)
             # Deliberately do not use the production allowlist to validate writes.
-            assert op in (1, 0x40A0, 0x4009, 0x400F) or (op == 0x424F and op in self.responses)
+            assert (op in (1, 0x40A0, 0x4009, 0x400F) or (op == 0x424F and op in self.responses)
+                    or (op == 0x4250 and self.allow_apply))
             if self.on_request:
                 self.on_request(op)
             if op == 1:
@@ -969,3 +974,286 @@ class ScanProbeTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     probe.main()
                 run.assert_not_called()
+
+
+class ApplyProbeTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="ezmart-x50-test-", dir="/tmp")
+        self.addCleanup(self.directory.cleanup)
+        self.journal = Path(self.directory.name) / "actions.json"
+        self.args = dict(host="192.168.68.1", expected_sha256=AuthenticationProbeTests.PIN,
+                         owner_email=AuthenticationProbeTests.EMAIL, password=AuthenticationProbeTests.PASSWORD,
+                         request_id="x50-opt-001", journal=str(self.journal))
+        self.sessions = []
+        self.clock = 1800000000.0
+
+    def advance(self, seconds):
+        self.clock += seconds
+
+    def run_action(self, needed=True, ack=None, fail_apply=False, observed_change=True,
+                   observation_states=None, corrupt_scan=False, **options):
+        actual_probe = probe.probe
+        observations = iter(observation_states or [])
+
+        def connection(**kwargs):
+            applying = kwargs.get("optimize", False)
+            if not applying:
+                self.assertTrue(kwargs.get("read_info"))
+                self.assertNotIn("scan_only", kwargs)
+                self.assertNotIn("optimize", kwargs)
+                state = next(observations, None)
+                if state:
+                    self.sessions.append([])
+                    return {"state": state}
+            peer = ScanProbeTests().peer(needed)
+            peer.allow_apply = applying
+            peer.responses[0x4250] = {"error_code": 0, "result": None} if ack is None else ack
+            if corrupt_scan:
+                peer.responses[0x424F] = {"error_code": 0, "result": {"need_optimize": 1}}
+            if not applying and observed_change:
+                peer.responses[0x4009]["result"]["band2_4"]["backhaul"]["channel"] = 6
+                peer.responses[0x4009]["result"]["band2_4"]["radio"]["htmode"] = "HT20"
+
+            def on_request(op):
+                if op == 0x4250:
+                    # Inspect the actual durable file before allowing simulated I/O.
+                    saved = json.loads(self.journal.read_text())["actions"][options.get("request_id", self.args["request_id"])]["report"]
+                    self.assertTrue(saved["apply_command_attempted"])
+                    self.assertFalse(saved["apply_command_sent"])
+                    self.assertTrue(saved["scan"]["need_optimize"])
+                    self.assertEqual(saved["channels_before_apply"]["state"], "available")
+                    if fail_apply:
+                        raise TimeoutError()
+            peer.on_request = on_request
+            self.sessions.append(peer.requests)
+            with patch.object(probe, "probe", actual_probe):
+                return AuthenticationProbeTests().run_server(
+                    channel_peer=peer, read_info=not applying, optimize=applying,
+                    checkpoint=kwargs.get("_checkpoint"), report=kwargs.get("_report"))[0]
+
+        with patch.object(probe, "probe", side_effect=connection), \
+                patch.object(probe.time, "sleep", side_effect=self.advance), \
+                patch.object(probe.time, "monotonic", side_effect=lambda: self.clock), \
+                patch.object(probe.time, "time", side_effect=lambda: self.clock):
+            result = probe.run_action(**dict(self.args, **options))
+        for secret in (AuthenticationProbeTests.EMAIL, AuthenticationProbeTests.PASSWORD, "PRIVATE"):
+            self.assertNotIn(secret, json.dumps(result))
+            if self.journal.exists():
+                self.assertNotIn(secret, self.journal.read_text())
+        return result
+
+    def test_apply_once_with_durable_reservation_then_three_readonly_sessions(self):
+        result = self.run_action()
+        self.assertEqual(result["state"], "apply_acknowledged")
+        self.assertEqual(result["conclusion"], "acknowledged_with_channel_change")
+        self.assertEqual(result["apply_ack"], {"state": "accepted", "api_code": 0})
+        self.assertTrue(result["apply_command_sent"])
+        self.assertEqual(self.sessions[0], [1, 0x40A0, 0x4009, 0x400F, 0x424F, 0x4009, 0x4250])
+        self.assertEqual(self.sessions[1:], [[1, 0x40A0, 0x4009, 0x400F]] * 3)
+        verification = result["verification"]
+        self.assertEqual(verification["stable_samples"], 3)
+        self.assertEqual(verification["channel_comparison"]["channel_changes"], [
+            {"band": "band2_4", "section": "backhaul", "before": 10, "after": 6}])
+        self.assertIn({"band": "band2_4", "section": "radio", "parameter": "htmode",
+                       "before": "HT40", "after": "HT20"}, verification["radio_changes"])
+        self.assertEqual(os.stat(self.journal).st_mode & 0o777, 0o600)
+        saved = json.loads(self.journal.read_text())["actions"]["x50-opt-001"]["report"]
+        self.assertEqual(saved, result)
+        self.assertGreaterEqual(result["elapsed_seconds"], 50)
+        self.assertLess(result["request_session_seconds"], result["elapsed_seconds"])
+
+    def test_negative_or_malformed_recommendation_never_applies(self):
+        for options, state in (({"needed": False}, "optimization_not_needed"),
+                               ({"corrupt_scan": True}, "scan_response_unrecognized")):
+            with self.subTest(state=state):
+                result = self.run_action(**options, request_id=state)
+                self.assertEqual(result["state"], state)
+                self.assertFalse(result["apply_command_attempted"])
+                self.assertFalse(result["apply_command_sent"])
+                self.assertNotIn("verification", result)
+        self.assertTrue(all(0x4250 not in ops for ops in self.sessions))
+
+    def test_same_request_never_replays_even_after_restart(self):
+        first = self.run_action()
+        count = len(self.sessions)
+        second = self.run_action()
+        self.assertEqual(second, {"state": "already_requested", "report": first})
+        self.assertEqual(len(self.sessions), count)
+        mismatch = self.run_action(expected_sha256="0" * 64)
+        self.assertEqual(mismatch["state"], "target_mismatch")
+        self.assertEqual(len(self.sessions), count)
+
+    def test_new_id_does_not_bypass_apply_cooldown(self):
+        self.run_action()
+        count = len(self.sessions)
+        result = self.run_action(request_id="x50-opt-002")
+        self.assertEqual(result["state"], "apply_cooldown")
+        self.assertGreater(result["remaining_seconds"], 1700)
+        self.assertEqual(len(self.sessions), count)
+
+    def test_ack_without_channel_change_does_not_invent_a_change(self):
+        result = self.run_action(observed_change=False)
+        self.assertEqual(result["conclusion"], "acknowledged_without_observed_channel_change")
+        self.assertEqual(result["verification"]["radio_changes"], [])
+        self.assertFalse(result["verification"]["channel_comparison"]["observed_channels_changed"])
+
+    def test_uncertain_send_is_never_reapplied_even_if_readings_changed(self):
+        result = self.run_action(fail_apply=True)
+        self.assertEqual(result["state"], "apply_outcome_uncertain")
+        self.assertTrue(result["apply_command_attempted"])
+        self.assertFalse(result["apply_command_sent"])
+        self.assertEqual(result["conclusion"], "unconfirmed_with_channel_change")
+        self.assertEqual(sum(ops.count(0x4250) for ops in self.sessions), 1)
+        count = len(self.sessions)
+        self.assertEqual(self.run_action(request_id="new-id")["state"], "previous_apply_unverified")
+        self.assertEqual(len(self.sessions), count)
+
+    def test_rejected_or_malformed_ack_never_becomes_accepted_by_observation(self):
+        for response, state in (({"error_code": -4104, "message": "PRIVATE"}, "apply_rejected"),
+                                (b'{"error_code":true}', "apply_outcome_uncertain"),
+                                (b'{"error_code":0,"error_code":1}', "apply_outcome_uncertain")):
+            # A separate temporary journal models an independent installation.
+            self.journal = Path(self.directory.name) / ("case-" + str(len(self.sessions)) + ".json")
+            self.args["journal"] = str(self.journal)
+            result = self.run_action(ack=response)
+            self.assertEqual(result["state"], state)
+            self.assertFalse(result["conclusion"].startswith("acknowledged_"))
+
+    def test_observation_timeout_recovers_with_verify_only_no_scan_or_apply(self):
+        result = self.run_action(observation_states=["timeout"] * 6)
+        self.assertEqual(result["state"], "verification_incomplete")
+        self.assertEqual(result["verification"]["attempts"], 6)
+        self.assertEqual(self.run_action(request_id="new-id")["state"], "previous_apply_unverified")
+        count = len(self.sessions)
+        recovered = self.run_action(verify_only=True)
+        self.assertEqual(recovered["conclusion"], "acknowledged_with_channel_change")
+        self.assertIn("last_verified_at", recovered)
+        self.assertEqual(self.sessions[count:], [[1, 0x40A0, 0x4009, 0x400F]] * 3)
+        self.assertEqual(sum(ops.count(0x4250) for ops in self.sessions), 1)
+
+    def test_connection_loss_resets_stability_and_auth_failure_stops(self):
+        result = self.run_action(observation_states=[None, "connection_error", None, None, None])
+        self.assertEqual(result["verification"]["attempts"], 5)
+        self.assertEqual(result["verification"]["stable_samples"], 3)
+        result = self.run_action(verify_only=True, observation_states=["authentication_rejected"])
+        self.assertEqual(result["verification"]["attempts"], 1)
+        self.assertEqual(result["verification"]["state"], "verification_blocked")
+        self.assertEqual(result["state"], "verification_incomplete")
+
+    def test_storage_failure_before_apply_prevents_the_write(self):
+        real_save = probe.atomic_json
+        calls = []
+        def fail(path, doc):
+            calls.append(1)
+            if len(calls) == 2:
+                raise probe.ActionStorageError()
+            real_save(path, doc)
+        with patch.object(probe, "atomic_json", side_effect=fail):
+            result = self.run_action()
+        self.assertEqual(result["state"], "action_storage_or_state_error")
+        self.assertTrue(all(0x4250 not in ops for ops in self.sessions))
+        count = len(self.sessions)
+        self.assertEqual(self.run_action()["state"], "already_requested")
+        self.assertEqual(len(self.sessions), count)
+
+    def test_post_send_storage_failure_leaves_durable_unknown_attempt(self):
+        real_save = probe.atomic_json
+        calls = []
+        def fail(path, doc):
+            calls.append(1)
+            if len(calls) == 3:
+                raise probe.ActionStorageError()
+            real_save(path, doc)
+        with patch.object(probe, "atomic_json", side_effect=fail):
+            result = self.run_action()
+        self.assertEqual(result["state"], "action_storage_or_state_error")
+        disk = json.loads(self.journal.read_text())["actions"]["x50-opt-001"]["report"]
+        self.assertTrue(disk["apply_command_attempted"])
+        self.assertEqual(disk["apply_ack"]["state"], "unavailable")
+        self.assertEqual(self.run_action(request_id="another")["state"], "previous_apply_unverified")
+        result = self.run_action(verify_only=True)
+        self.assertEqual(result["conclusion"], "unconfirmed_with_channel_change")
+        self.assertEqual(sum(ops.count(0x4250) for ops in self.sessions), 1)
+
+    def test_locked_corrupt_or_missing_history_never_connects(self):
+        with probe.action_store(self.journal):
+            self.assertEqual(self.run_action()["state"], "action_in_progress")
+        self.assertEqual(self.run_action(verify_only=True)["state"], "nothing_to_verify")
+        for content in ('invalid', '{}', '{"version":1,"actions":[]}',
+                        '{"version":1,"version":1,"actions":{}}'):
+            self.journal.write_text(content)
+            self.assertEqual(self.run_action()["state"], "action_storage_or_state_error")
+        self.assertEqual(self.sessions, [])
+
+    def test_interrupted_attempt_can_only_resume_verification(self):
+        with patch.object(probe, "verify_application", side_effect=KeyboardInterrupt()):
+            result = self.run_action()
+        self.assertEqual(result["state"], "interrupted")
+        self.assertTrue(result["apply_command_attempted"])
+        self.assertEqual(self.run_action()["state"], "already_requested")
+        self.assertEqual(self.run_action(verify_only=True)["verification"]["state"], "stable")
+        self.assertEqual(sum(ops.count(0x4250) for ops in self.sessions), 1)
+
+    def test_modes_need_explicit_id_and_low_level_apply_remains_disabled(self):
+        with patch.object(probe.socket, "create_connection") as connect:
+            with self.assertRaises(ValueError):
+                probe.probe("192.168.68.1", optimize=True)
+            connect.assert_not_called()
+        channel = MagicMock()
+        for allow_scan in (False, True):
+            with self.assertRaisesRegex(probe.ProtocolError, "tmp_opcode_not_allowed"):
+                probe.TMPReader(channel, allow_scan=allow_scan).request(0x4250, 60)
+        channel.send.assert_not_called()
+        for flags in (("--optimize",), ("--verify-only",), ("--optimize", "--scan-only")):
+            with patch.object(probe.sys, "argv", ["probe", "192.168.68.1", *flags]), \
+                    patch.object(probe.getpass, "getpass") as prompt, patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    probe.main()
+                prompt.assert_not_called()
+
+    def test_apply_one_use_gate_blocks_second_write_even_after_send_failure(self):
+        channel = MagicMock()
+        channel.report = {}
+        channel.send.side_effect = TimeoutError()
+        reader = probe.TMPReader(channel)
+        reservation = MagicMock()
+        reader.reserve_apply = reservation
+        with self.assertRaises(TimeoutError):
+            reader.request(0x4250, 60)
+        with self.assertRaisesRegex(probe.ProtocolError, "apply_already_attempted"):
+            reader.request(0x4250, 60)
+        reservation.assert_called_once()
+        channel.send.assert_called_once()
+
+    def test_atomic_storage_failure_does_not_overwrite_previous_report(self):
+        probe.atomic_json(self.journal, {"before": True})
+        with patch.object(probe.os, "replace", side_effect=OSError()):
+            with self.assertRaises(probe.ActionStorageError):
+                probe.atomic_json(self.journal, {"after": True})
+        self.assertEqual(json.loads(self.journal.read_text()), {"before": True})
+        self.assertEqual(list(Path(self.directory.name).iterdir()), [self.journal])
+
+    def test_corrupt_apply_metadata_fails_before_network(self):
+        self.run_action()
+        original = json.loads(self.journal.read_text())
+        count = len(self.sessions)
+        for field, value in (("apply_ack", []), ("verification", "stable"),
+                             ("apply_attempted_at", float("nan")), ("channels_before_apply", {})):
+            document = json.loads(json.dumps(original))
+            document["actions"]["x50-opt-001"]["report"][field] = value
+            self.journal.write_text(json.dumps(document))
+            self.assertEqual(self.run_action(verify_only=True)["state"], "action_storage_or_state_error")
+        self.assertEqual(len(self.sessions), count)
+
+    def test_cli_application_and_verification_preserve_local_credentials(self):
+        for flag in ("--optimize", "--verify-only"):
+            args = ["probe", "192.168.68.1", "--expected-sha256", AuthenticationProbeTests.PIN,
+                    flag, "--request-id", "x50-opt-001", "--journal", str(self.journal), "--timeout", "20"]
+            with patch.object(probe.sys, "argv", args), patch.object(probe.sys.stdin, "isatty", return_value=True), \
+                    patch.object(probe.getpass, "getpass", side_effect=["owner@example.test", " secret "]), \
+                    patch.object(probe, "run_action", return_value={"state": "apply_acknowledged",
+                        "conclusion": "acknowledged_with_channel_change", "verification": {"state": "stable"}}) as run, \
+                    patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(probe.main(), 0)
+                self.assertEqual(run.call_args.args[3], " secret ")
+                self.assertEqual(run.call_args.kwargs["verify_only"], flag == "--verify-only")
