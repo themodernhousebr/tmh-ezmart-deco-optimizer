@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Standalone X50 TLS probe with optional TPAP login-parameter negotiation.
+"""Standalone X50 TLS probe with optional single TPAP authentication.
 
-No password proof, authenticated session, TMP channel or ACS calls.
+No TMP channel, network scan or channel application, in any mode.
 
-Python 3.9+ standard library only. The public CA comes from the official
+Python 3.9+; --authenticate also requires PyCryptodome. The public CA comes from the official
 X50 1.8.4 firmware documented in RESEARCH.md. It is scoped to this connection;
 it is never installed in the operating system's trust store.
 """
@@ -23,6 +23,7 @@ import ssl
 import struct
 import sys
 import time
+import warnings
 import zlib
 
 
@@ -30,6 +31,14 @@ PORT = 30001
 HEADER = struct.Struct(">BBBBI8s4sI")
 CRC_SEED = 0x92BF30ED
 MAX_BODY = 8192
+P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+# RFC 9383 P-256 points, also present verbatim in the X50 1.8.4 library.
+SPAKE_M = bytes.fromhex(
+    "04886e2f97ace46e55ba9dd7242579f2993b64e16ef3dcab95afd497333d8fa12f5f"
+    "f355163e43ce224e0b0e65ff02ac8e5c7be09419c785e0ca547d55a12e2d20")
+SPAKE_N = bytes.fromhex(
+    "04d8bbd6c639c62937b04d997f38c3770719c629d7014d49a24b4f98baa1292b49"
+    "07d60aa6bfade45008a636337f5168c64d9bd36034808cd564490b1e656edbe7")
 ROOT_CA = """-----BEGIN CERTIFICATE-----
 MIICNzCCAdygAwIBAgIUNLD7w5j5WU/efCe8bqkfGSRGgLYwCgYIKoZIzj0EAwIw
 ezEnMCUGA1UEAwweVFAtTElOSyBTWVNURU1TIERFVklDRSBST09UIENBMR0wGwYD
@@ -63,20 +72,26 @@ class ProtocolError(Exception):
     """Only fixed diagnostic codes, never raw packet contents."""
 
 
-def registration_packet(owner_email):
-    """Firmware prover_SendParamRequest: one existing-account negotiation."""
+def auth_packet(request):
     sequence = secrets.token_bytes(4)
+    body = json.dumps(request, separators=(",", ":")).encode("utf-8")
+    packet = HEADER.pack(1, 1, 1, 0, len(body), b"\0" * 8, sequence, CRC_SEED) + body
+    return packet[:20] + struct.pack(">I", zlib.crc32(packet)) + body, sequence
+
+
+def registration_packet(owner_email, user_random=None):
+    """Firmware prover_SendParamRequest: one existing-account negotiation."""
+    if user_random is None:
+        user_random = secrets.token_bytes(32)
     request = {"method": "login", "params": {
         "sub_method": "pake_register",
         "username": hashlib.sha256(owner_email.encode("utf-8")).hexdigest(),
-        "user_random": base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
+        "user_random": base64.b64encode(user_random).decode("ascii"),
         "passcode_type": "userpw",
         "cipher_suites": [1],
         "encryption": ["aes_128_ccm"],
     }}
-    body = json.dumps(request, separators=(",", ":")).encode("utf-8")
-    packet = HEADER.pack(1, 1, 1, 0, len(body), b"\0" * 8, sequence, CRC_SEED) + body
-    return packet[:20] + struct.pack(">I", zlib.crc32(packet)) + body, sequence
+    return auth_packet(request)
 
 
 def remaining_timeout(connection, deadline):
@@ -124,13 +139,28 @@ def receive_registration(connection, sequence, deadline):
         raise ProtocolError("invalid_json") from None
 
 
-def summarize_parameters(message):
-    """Do not export salts, points, nonces, account hashes, tokens or raw JSON."""
+def api_code(message):
     if not isinstance(message, dict) or type(message.get("error_code")) is not int:
         raise ProtocolError("invalid_response_shape")
     code = message["error_code"]
     if not -(2**31) <= code < 2**31:
         raise ProtocolError("invalid_api_code")
+    return code
+
+
+def decoded_parameter(value, minimum, maximum):
+    try:
+        data = base64.b64decode(value, validate=True) if isinstance(value, str) else b""
+    except (ValueError, binascii.Error):
+        raise ProtocolError("invalid_parameter_encoding") from None
+    if not minimum <= len(data) <= maximum:
+        raise ProtocolError("invalid_parameter_length")
+    return data
+
+
+def summarize_parameters(message):
+    """Do not export salts, points, nonces, account hashes, tokens or raw JSON."""
+    code = api_code(message)
     if code != 0:
         return {"state": "pake_rejected", "api_code": code}
     params = message.get("result")
@@ -146,13 +176,7 @@ def summarize_parameters(message):
     sizes = {}
     for name, minimum, maximum in [("dev_random", 32, 32), ("dev_salt", 1, 64),
                                    ("dev_share", 65, 65)]:
-        value = params.get(name)
-        try:
-            data = base64.b64decode(value, validate=True) if isinstance(value, str) else b""
-        except (ValueError, binascii.Error):
-            raise ProtocolError("invalid_parameter_encoding") from None
-        if not minimum <= len(data) <= maximum:
-            raise ProtocolError("invalid_parameter_length")
+        data = decoded_parameter(params.get(name), minimum, maximum)
         if name == "dev_share" and data[0] != 4:
             raise ProtocolError("unexpected_point_encoding")
         sizes[name + "_bytes"] = len(data)
@@ -177,7 +201,120 @@ def summarize_parameters(message):
             "owner_account_verified": False}
 
 
-def probe(host, timeout=8, expected_sha256=None, owner_email=None):
+def crypto_modules():
+    try:
+        from Crypto.PublicKey import ECC
+        from Crypto.Protocol.KDF import HKDF
+        from Crypto.Hash import SHA256
+    except ImportError:
+        raise ValueError("Para --authenticate, instale py3-pycryptodome no Terminal/SSH.") from None
+    return ECC, HKDF, SHA256
+
+
+def encode_point(point):
+    if point.is_point_at_infinity():
+        raise ProtocolError("invalid_curve_point")
+    return b"\x04" + int(point.x).to_bytes(32, "big") + int(point.y).to_bytes(32, "big")
+
+
+def decode_point(encoded):
+    ECC, _, _ = crypto_modules()
+    if len(encoded) != 65 or encoded[0] != 4:
+        raise ProtocolError("unexpected_point_encoding")
+    try:
+        point = ECC.import_key(encoded, curve_name="P-256").pointQ
+    except ValueError:
+        raise ProtocolError("invalid_curve_point") from None
+    if point.is_point_at_infinity():
+        raise ProtocolError("invalid_curve_point")
+    return point
+
+
+def _spake2p_proofs(context, w0, w1, scalar, server_share, prover_id=b"", verifier_id=b""):
+    """RFC 9383 proof calculation; explicit scalar permits published-vector tests.
+
+    Production callers always use a fresh secrets-generated scalar. P-256 has
+    cofactor 1; validated nonidentity points belong to its prime-order group.
+    No private values or session keys are returned in the diagnostic report.
+    """
+    ECC, HKDF, SHA256 = crypto_modules()
+    if any(not 0 < value < P256_ORDER for value in (w0, w1, scalar)):
+        raise ProtocolError("invalid_scalar")
+    peer = decode_point(server_share)
+    m, n = decode_point(SPAKE_M), decode_point(SPAKE_N)
+    client = ECC.construct(curve="P-256", d=scalar).pointQ + m * w0
+    unmasked = peer + -(n * w0)
+    if unmasked.is_point_at_infinity():
+        raise ProtocolError("invalid_curve_point")
+    client_share = encode_point(client)
+    transcript = b"".join(struct.pack("<Q", len(part)) + part for part in (
+        context, prover_id, verifier_id, SPAKE_M, SPAKE_N, client_share, server_share,
+        encode_point(unmasked * scalar), encode_point(unmasked * w1), w0.to_bytes(32, "big")))
+    main_key = hashlib.sha256(transcript).digest()
+    confirmation_keys = HKDF(main_key, 64, b"", SHA256, context=b"ConfirmationKeys")
+    user_confirm = hmac.digest(confirmation_keys[:32], server_share, "sha256")
+    dev_confirm = hmac.digest(confirmation_keys[32:], client_share, "sha256")
+    return client_share, user_confirm, dev_confirm
+
+
+def password_proofs(params, owner_email, password, user_random):
+    # Only the exact profile observed on the client X50; never guess alternative
+    # password encodings or automatically retry a rejected proof.
+    if params.get("extra_crypt") is not None:
+        raise ProtocolError("unsupported_password_profile")
+    if not 1 <= params["iterations"] <= 1000000:
+        raise ProtocolError("authentication_iteration_limit")
+    server_share = decoded_parameter(params.get("dev_share"), 65, 65)
+    decode_point(server_share)  # Validate before doing the expensive PBKDF.
+    server_random = decoded_parameter(params.get("dev_random"), 32, 32)
+    salt = decoded_parameter(params.get("dev_salt"), 32, 32)
+    # accountmgnt.lua:set_tpap_authmgmt passes decoded username + '/' + decoded
+    # password to libtpap.generate_verify. Keep case and password whitespace.
+    material = (owner_email + "/" + password).encode("utf-8")
+    derived = hashlib.pbkdf2_hmac("sha256", material, salt, params["iterations"], dklen=80)
+    w0 = int.from_bytes(derived[:40], "big") % P256_ORDER
+    w1 = int.from_bytes(derived[40:], "big") % P256_ORDER
+    context = hashlib.sha256(b"PAKE V1" + user_random + server_random).digest()
+    scalar = secrets.randbelow(P256_ORDER - 1) + 1
+    return _spake2p_proofs(context, w0, w1, scalar, server_share)
+
+
+def authenticate(tls, deadline, params, owner_email, password, user_random, result):
+    share, proof, expected = password_proofs(params, owner_email, password, user_random)
+    packet, sequence = auth_packet({"method": "login", "params": {
+        "sub_method": "pake_share", "user_share": base64.b64encode(share).decode("ascii"),
+        "user_confirm": base64.b64encode(proof).decode("ascii"),
+    }})
+    remaining_timeout(tls, deadline)
+    sent = result["application_bytes_sent"]
+    result.update(authentication="proof_attempted", password_proof_attempted=True,
+                  application_bytes_sent=None)
+    tls.sendall(packet)
+    result.update(password_proof_sent=True, application_bytes_sent=sent + len(packet),
+                  application_messages_sent=2)
+    message = receive_registration(tls, sequence, deadline)
+    code = api_code(message)
+    result["api_code"] = code
+    if code != 0:
+        result.update(state="authentication_rejected", authentication="rejected")
+        return
+    reply = message.get("result")
+    if not isinstance(reply, dict) or reply.get("sub_method") != "pake_share":
+        raise ProtocolError("unexpected_auth_method")
+    received = decoded_parameter(reply.get("dev_confirm"), 32, 32)
+    if not hmac.compare_digest(expected, received):
+        result.update(state="server_proof_mismatch", authentication="not_verified")
+        return
+    result["server_proof_verified"] = True
+    # Native prover_HandleShareResponse requires stok. Do not export or save it.
+    token = reply.get("stok")
+    if not isinstance(token, str) or not 1 <= len(token) <= 256:
+        raise ProtocolError("invalid_session_token")
+    result.update(state="authentication_verified", authentication="verified",
+                  account_credentials_verified=True, session_token_received=True)
+
+
+def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None):
     # Literal unicast IPs avoid DNS delays and accidental broadcast discovery.
     address = ipaddress.ip_address(host)
     if address.is_unspecified or address.is_multicast:
@@ -192,10 +329,16 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None):
         if expected_sha256 is None:
             raise ValueError("A consulta TPAP exige --expected-sha256.")
         if (not isinstance(owner_email, str) or len(owner_email.encode("utf-8")) > 254
-                or not re.fullmatch(r"[^@\s]+@[^@\s]+", owner_email)):
+                or "\0" in owner_email or not re.fullmatch(r"[^@\s]+@[^@\s]+", owner_email)):
             raise ValueError("Informe o e-mail da conta proprietária no Terminal.")
+    if password is not None:
+        if owner_email is None:
+            raise ValueError("A autenticação exige o e-mail da conta e --expected-sha256.")
+        if not isinstance(password, str) or not 1 <= len(password.encode("utf-8")) <= 256 or "\0" in password:
+            raise ValueError("Informe uma senha não vazia de até 256 bytes, sem caractere nulo.")
+        crypto_modules()  # Missing dependency must not consume a device login attempt.
     result = {
-        "probe_version": 2,
+        "probe_version": 3,
         "state": "not_connected",
         "port": PORT,
         "vendor_chain_verified": False,
@@ -205,7 +348,12 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None):
         "optimization": "not_tested",
         "application_bytes_sent": 0,
         "application_send_attempted": False,
+        "application_messages_sent": 0,
     }
+    if password is not None:
+        result.update(password_proof_attempted=False, password_proof_sent=False,
+                      server_proof_verified=False, account_credentials_verified=False,
+                      account_role_verified=False, session_token_received=False)
     started = time.monotonic()
     try:
         context = make_context()
@@ -235,15 +383,22 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None):
                     if not matched:
                         result["state"] = "certificate_pin_mismatch"
                 if owner_email is not None and result["state"] == "tls_verified":
-                    packet, sequence = registration_packet(owner_email)
+                    user_random = secrets.token_bytes(32)
+                    packet, sequence = registration_packet(owner_email, user_random)
                     remaining_timeout(tls, deadline)
                     result.update(application_send_attempted=True, application_bytes_sent=None,
                                   authentication="parameters_only")
                     tls.sendall(packet)
-                    result["application_bytes_sent"] = len(packet)
+                    result.update(application_bytes_sent=len(packet), application_messages_sent=1)
                     message = receive_registration(tls, sequence, deadline)
                     result.update(summarize_parameters(message))
-                # Close without password proof or an authenticated TMP channel.
+                    if password is not None:
+                        # PAKE verifies account credentials, not owner/admin permissions.
+                        result.pop("owner_account_verified", None)
+                        if result["state"] == "pake_parameters_received":
+                            authenticate(tls, deadline, message["result"], owner_email,
+                                         password, user_random, result)
+                # Close even after successful login. Never open a TMP channel.
     except ProtocolError as error:
         result.update(state="protocol_error", protocol_error=str(error))
     except ssl.SSLCertVerificationError as error:
@@ -265,25 +420,44 @@ def main():
     parser.add_argument("host", help="IP do X50 principal")
     parser.add_argument("--timeout", type=int, default=8)
     parser.add_argument("--expected-sha256", help="Identidade obtida em uma execução anterior")
-    parser.add_argument("--pake-parameters", action="store_true",
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--pake-parameters", action="store_true",
                         help="Consultar uma vez os parâmetros TPAP; não solicita senha")
+    modes.add_argument("--authenticate", action="store_true",
+                       help="Testar um login com senha oculta; não executa análise ou otimização")
     args = parser.parse_args()
     owner_email = None
-    if args.pake_parameters:
+    password = None
+    if args.pake_parameters or args.authenticate:
         if not args.expected_sha256:
-            parser.error("--pake-parameters exige --expected-sha256.")
+            parser.error("A negociação/login exige --expected-sha256.")
+        if args.authenticate:
+            try:
+                crypto_modules()
+            except ValueError as error:
+                parser.error(str(error))
         if not sys.stdin.isatty():
             parser.error("Execute em um Terminal interativo para informar o e-mail localmente.")
         try:
-            owner_email = getpass.getpass("E-mail da conta proprietária TP-Link (entrada oculta): ").strip()
+            # getpass must not silently fall back to visible keyboard input.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", getpass.GetPassWarning)
+                owner_email = getpass.getpass("E-mail da conta proprietária TP-Link (entrada oculta): ").strip()
+                if args.authenticate:
+                    password = getpass.getpass("Senha dessa conta TP-Link (entrada oculta): ")
+        except getpass.GetPassWarning:
+            parser.error("Este Terminal não permite entrada oculta; nenhuma conexão foi iniciada.")
         except (EOFError, KeyboardInterrupt):
             return 1
     try:
-        result = probe(args.host, args.timeout, args.expected_sha256, owner_email=owner_email)
+        result = probe(args.host, args.timeout, args.expected_sha256,
+                       owner_email=owner_email, password=password)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result["state"] in ("tls_verified", "pake_parameters_received") else 1
+    success = ("authentication_verified",) if args.authenticate else (
+        "pake_parameters_received",) if args.pake_parameters else ("tls_verified",)
+    return 0 if result["state"] in success else 1
 
 
 if __name__ == "__main__":
