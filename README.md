@@ -30,16 +30,16 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001 e login SPAKE2+ confirmados no equipamento, com certificado fixado e prova do servidor conferida. Leitura TMP preparada no diagnóstico independente; leitura física e otimização ainda pendentes. O app atual **não implementa TPAP** |
+| X50 como roteador principal, hardware informado pelo inventário 1.30, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001, login SPAKE2+ e leituras TMP de modo, canais e inventário confirmados no equipamento. Análise de interferência preparada no diagnóstico independente; análise física e aplicação ainda pendentes. O app atual **não implementa TPAP** |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
-O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos e a diferença entre a etiqueta V1.0 informada pelo operador e a página oficial V1.30 do build instalado. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar um X50 representativo, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento HTTPS também depende do firmware e precisa ser conferido.
+O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos: o inventário autenticado do cliente informou hardware **1.30** para os dois X50, apesar da etiqueta V1.0 anteriormente atribuída à unidade. Isso não implica intercambialidade de revisões. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar a aplicação e integrar o transporte X50 ao app, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento HTTPS também depende do firmware e precisa ser conferido.
 
 Na 0.8.0-dev.1, o piloto confirmou criação das entidades e envio/conclusão de um pedido de verificação pelo Home Assistant. A revisão dev.2 acrescenta avisos de falha MQTT, empacotamento e exemplos; ainda não foi instalada no HAOS do piloto. Aceite do comando e leituras estáveis não comprovam melhora de interferência, velocidade ou recuperação de uma câmera.
 
 ### Diagnóstico X50 sem rebuild
 
-[tools/x50_tls_probe.py](tools/x50_tls_probe.py) é um diagnóstico independente para o X50 US acima, executado no Terminal/SSH do HA que está na mesma rede. Os modos TLS e parâmetros requerem somente Python 3.9 ou superior; no app Terminal/SSH baseado em Alpine, `apk add --no-cache python3` instala o interpretador. Os modos de login e leitura também requerem PyCryptodome. Depois de baixar o arquivo para `/tmp`:
+[tools/x50_tls_probe.py](tools/x50_tls_probe.py) é um diagnóstico independente para o X50 US acima, executado no Terminal/SSH do HA que está na mesma rede. Os modos TLS e parâmetros requerem somente Python 3.9 ou superior; no app Terminal/SSH baseado em Alpine, `apk add --no-cache python3` instala o interpretador. Os modos de login, leitura e análise também requerem PyCryptodome. Depois de baixar o arquivo para `/tmp`:
 
 ```sh
 python3 /tmp/x50_tls_probe.py 192.168.68.1
@@ -84,7 +84,27 @@ python3 /tmp/x50_tls_probe.py 192.168.68.1 \
 
 Use as credenciais do cliente nos mesmos prompts ocultos. O prazo é de 20 segundos para o login e para cada uma das quatro operações TMP (alocação e três leituras), até aproximadamente 100 segundos no conjunto. Não há repetição automática. O relatório mantém `authentication: verified` se o login passou, mesmo que uma etapa posterior falhe. `tmp_session_verified: true` confirma a abertura TMP; `readonly_verified` exige as três respostas reconhecidas. `readonly_incomplete` significa que alguma leitura foi recusada ou apresentou formato desconhecido. `stage` identifica onde ocorreu uma eventual falha de transporte. Os canais são separados entre `radio`, `host` e `backhaul`, conforme disponíveis, sem confundir configuração e leitura do rádio.
 
-O relatório omite senhas Wi-Fi, SSIDs, MACs, nomes de cômodos, IDs e tokens. Nenhum modo busca interferência ou aplica canais; `optimization` continua `not_tested`. A leitura preparada passou pelos testes simulados, mas ainda precisa ser executada no X50 físico. O login pode estabelecer uma sessão e uma tentativa recusada pode contar para o bloqueio do equipamento. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
+O operador confirmou `readonly_verified` no X50 do cliente em 15/11/2026: 2,114 segundos, modo Router, dois X50 hardware 1.30 com firmware 1.8.4, um principal e um secundário. Os números 10 e 36 vieram de `backhaul` nas bandas 2,4 e 5 GHz; `radio` retornou apenas HT40/HT80. Não são leituras numéricas de canal da rede principal dos clientes Wi-Fi.
+
+O relatório omite senhas Wi-Fi, SSIDs, MACs, nomes de cômodos, IDs e tokens. Os modos acima não buscam interferência e nenhum modo aplica canais; `optimization` continua `not_tested`. O login pode estabelecer uma sessão e uma tentativa recusada pode contar para o bloqueio do equipamento. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
+
+### Uma análise de interferência no X50
+
+A revisão 5 adiciona um modo explícito de análise. Ele autentica, repete as três leituras e exige o perfil observado do principal: X50, hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460 e modo Router. Então solicita **uma análise ACS**, aguarda a resposta e consulta os canais novamente:
+
+```sh
+python3 /tmp/x50_tls_probe.py 192.168.68.1 \
+  --expected-sha256 IMPRESSAO_OBTIDA_NESTE_X50 \
+  --timeout 20 --scan-only --scan-timeout 120
+```
+
+Essa chamada pode iniciar a busca de interferência no equipamento; não é uma consulta passiva. O prazo da análise é separado (30–180 segundos, padrão 120). Com os valores do exemplo, o limite do conjunto é aproximadamente quatro minutos, incluindo login, alocação, leituras e análise. Há um único pedido de análise por execução, sem reenviar após timeout ou falha de envio. Executar o comando novamente inicia outra sessão e pode iniciar outra análise; não há agendamento nem histórico persistente nesse diagnóstico.
+
+`scan_response_received` indica resposta reconhecida, com `scan.need_optimize` e `scan.optimize_item.channel` booleanos coerentes. **Não confirma aplicação**: `apply_command_sent` permanece falso e não existe comando de aplicação habilitado. `estimated_apply_seconds` é a estimativa fornecida pelo Deco para uma eventual aplicação, não a duração da análise. Mesmo uma resposta demorada pode vir de cache: `fresh_scan_confirmed: false` e `result_may_be_cached: true` preservam essa limitação. O firmware também pode suprimir a recomendação por 1800 segundos após uma aplicação.
+
+`reads.channels` contém a observação anterior; `channels_after_scan` contém a posterior. `channel_comparison` compara somente campos numéricos na mesma banda e seção (`radio`, `host` ou `backhaul`), identificando comparação completa, parcial ou indisponível. Mudança observada não é atribuída ao diagnóstico nem prova melhora. Se a observação posterior falhar, a resposta de análise recebida fica preservada em `scan`, mas o resultado geral não declara o diagnóstico completo. Um perfil diferente retorna `scan_target_unsupported` antes do pedido; uma leitura prévia incompleta retorna `scan_preflight_failed`.
+
+Esse modo passou pelos testes simulados e aguarda a análise física do X50 do cliente. A aplicação e integração TPAP ao app continuam pendentes.
 
 ## Automações e acompanhamento
 

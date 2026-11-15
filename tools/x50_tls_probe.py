@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Standalone X50 TLS, authentication and fixed read-only TMP diagnostics.
+"""Standalone X50 TLS, authentication, TMP reads and optional interference scan.
 
-No interference scan or channel application, in any mode.
+Only --scan-only requests an interference analysis, once. No mode applies channels.
 
-Python 3.9+; --authenticate/--read-info require PyCryptodome. The public CA comes from the official
+Python 3.9+; authenticated modes require PyCryptodome. The public CA comes from the official
 X50 1.8.4 firmware documented in RESEARCH.md. It is scoped to this connection;
 it is never installed in the operating system's trust store.
 """
@@ -35,6 +35,7 @@ TMP_CHANNEL = b"TMP\0\0\0\0\0"
 MAX_CHANNEL_BODY = 65535 + 16 + 16  # TMP business + transport + CCM tag.
 MAX_TMP_RESULT = 262144
 READ_OPS = {"mode": 0x40A0, "channels": 0x4009, "devices": 0x400F}
+ACS_SCAN = 0x424F
 P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 # RFC 9383 P-256 points, also present verbatim in the X50 1.8.4 library.
 SPAKE_M = bytes.fromhex(
@@ -388,22 +389,38 @@ class TMPChannel:
 
 
 class TMPReader:
-    """ALLOC plus three fixed reads; no scan, apply or arbitrary opcode interface."""
+    """Fixed reads and, when enabled, one ACS analysis; never channel application."""
 
-    def __init__(self, channel):
+    def __init__(self, channel, allow_scan=False):
         self.channel = channel
         self.sequence = 0
         self.transaction = -1
+        self.allow_scan = allow_scan
+        self.scan_transaction = None
 
     def send(self, opcode, body, offset=0, pull=False):
-        if opcode not in (1, *READ_OPS.values()):
+        if opcode == ACS_SCAN and self.allow_scan:
+            if pull:
+                if self.scan_transaction != self.transaction:
+                    raise ProtocolError("scan_pull_without_request")
+            elif self.scan_transaction is not None:
+                raise ProtocolError("scan_already_attempted")
+            else:
+                # Reserve before I/O: a partial write must never be retried.
+                self.scan_transaction = self.transaction
+        elif opcode not in (1, *READ_OPS.values()):
             raise ProtocolError("tmp_opcode_not_allowed")
         self.sequence += 1
         business = struct.pack(">BBHBBHIII", 1, 2, opcode, 4 if pull else 2, 0,
                                self.transaction, zlib.crc32(body), len(body), offset) + body
         header = struct.pack(">BBBBHHI", 1, 1, 5, 0, len(business), 0, self.sequence)
         crc = zlib.crc32(header + bytes.fromhex("5a6b7c8d") + business)
+        is_scan = opcode == ACS_SCAN and not pull
+        if is_scan:
+            self.channel.report["scan"].update(state="response_pending", request_attempted=True)
         self.channel.send(header + struct.pack(">I", crc) + business)
+        if is_scan:
+            self.channel.report["scan"]["request_sent"] = True
 
     def request(self, opcode, timeout):
         self.channel.deadline = time.monotonic() + timeout
@@ -520,10 +537,10 @@ def project_read(name, body):
     return {"state": "available" if out else "unrecognized_response", "api_code": 0, "data": out}
 
 
-def read_information(tls, shared_key, timeout, result):
+def read_information(tls, shared_key, timeout, result, allow_scan=False):
     result.update(stage="tmp_allocate", tmp_session_verified=False,
                   channel_frames_received=0, reads={})
-    reader = TMPReader(TMPChannel(tls, shared_key, result))
+    reader = TMPReader(TMPChannel(tls, shared_key, result), allow_scan=allow_scan)
     token = reader.request(1, timeout)
     if not re.fullmatch(b"[0-9a-fA-F]{32}", token):
         raise ProtocolError("invalid_tmp_session")
@@ -534,15 +551,100 @@ def read_information(tls, shared_key, timeout, result):
         result["reads"][name] = project_read(name, reader.request(opcode, timeout))
     complete = all(read["state"] == "available" for read in result["reads"].values())
     result.update(state="readonly_verified" if complete else "readonly_incomplete", stage="complete")
+    return reader
 
 
-def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None, read_info=False):
+def project_scan(body):
+    """The 1.8.4 ACS contract does not prove freshness, even after a long wait."""
+    try:
+        message = json.loads(body.decode("utf-8"), object_pairs_hook=unique_object)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ProtocolError("invalid_tmp_json") from None
+    code = api_code(message)
+    if code:
+        return {"state": "scan_rejected", "api_code": code}
+    data = message.get("result")
+    if not isinstance(data, dict):
+        return {"state": "scan_response_unrecognized", "api_code": 0}
+    needed = data.get("need_optimize")
+    items = data.get("optimize_item")
+    channel = items.get("channel") if isinstance(items, dict) else None
+    if type(needed) is not bool or type(channel) is not bool or needed != channel:
+        return {"state": "scan_response_unrecognized", "api_code": 0}
+    out = {"state": "scan_response_received", "api_code": 0,
+           "need_optimize": needed, "optimize_item": {"channel": channel}}
+    estimated = data.get("optimize_time")
+    if type(estimated) is int and 0 <= estimated <= 600:
+        out["estimated_apply_seconds"] = estimated
+    return out
+
+
+def compare_channels(before, after):
+    """Compare only matching scopes; a backhaul number is not a host radio reading."""
+    def numbers(snapshot):
+        if snapshot.get("state") != "available":
+            return {}
+        return {(band, section): values["channel"]
+                for band, sections in snapshot["data"].items()
+                for section, values in sections.items() if "channel" in values}
+
+    left, right = numbers(before), numbers(after)
+    common = sorted(left.keys() & right.keys())
+    changes = [{"band": b, "section": s, "before": left[b, s], "after": right[b, s]}
+               for b, s in common if left[b, s] != right[b, s]]
+    return {"state": "complete" if left and left.keys() == right.keys() else
+            "partial" if common else "unavailable",
+            "compared_fields": [{"band": b, "section": s} for b, s in common],
+            "channel_changes": changes,
+            "observed_channels_changed": bool(changes) if common else None}
+
+
+def scan_information(reader, timeout, scan_timeout, result):
+    """One explicitly selected ACS analysis on the physically identified profile."""
+    result["stage"] = "scan_preflight"
+    if result["state"] != "readonly_verified":
+        result.update(state="scan_preflight_failed")
+        return
+    reads = result["reads"]
+    masters = [node for node in reads["devices"]["data"]["nodes"] if node.get("role") == "master"]
+    if (reads["mode"]["data"].get("mode") != "Router" or len(masters) != 1
+            or masters[0].get("model") != "X50" or masters[0].get("hardware") != "1.30"
+            or masters[0].get("firmware") != "1.8.4 Build 26051413 Rel. 27460"):
+        result.update(state="scan_target_unsupported")
+        return
+    scan = result["scan"]
+    result["stage"] = "scan"
+    started = time.monotonic()
+    try:
+        body = reader.request(ACS_SCAN, scan_timeout)
+        scan.update(response_received=True, state="scan_response_unrecognized")
+        scan.update(project_scan(body))
+    finally:
+        scan["response_seconds"] = round(time.monotonic() - started, 3)
+        if scan["state"] == "response_pending":
+            scan["state"] = "response_unknown"
+    result["state"] = scan["state"]
+    # This is an observation, not an application acknowledgement or proof of improvement.
+    result["stage"] = "read_channels_after_scan"
+    result["channels_after_scan"] = project_read("channels", reader.request(READ_OPS["channels"], timeout))
+    result["channel_comparison"] = compare_channels(reads["channels"], result["channels_after_scan"])
+    if result["state"] == "scan_response_received" and result["channel_comparison"]["state"] != "complete":
+        result["state"] = "scan_observation_incomplete"
+    result["stage"] = "complete"
+
+
+def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None,
+          read_info=False, scan_only=False, scan_timeout=120):
     # Literal unicast IPs avoid DNS delays and accidental broadcast discovery.
     address = ipaddress.ip_address(host)
     if address.is_unspecified or address.is_multicast:
         raise ValueError("Use o IP do Deco principal.")
     if not 1 <= timeout <= 30:
         raise ValueError("O prazo deve estar entre 1 e 30 segundos.")
+    if type(scan_timeout) is not int or not 30 <= scan_timeout <= 180:
+        raise ValueError("O prazo da análise deve estar entre 30 e 180 segundos.")
+    if read_info and scan_only:
+        raise ValueError("Selecione somente --read-info ou --scan-only.")
     if expected_sha256 is not None:
         if not re.fullmatch(r"[a-fA-F0-9]{64}", expected_sha256):
             raise ValueError("A identidade esperada deve ter 64 caracteres hexadecimais.")
@@ -559,10 +661,10 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         if not isinstance(password, str) or not 1 <= len(password.encode("utf-8")) <= 256 or "\0" in password:
             raise ValueError("Informe uma senha não vazia de até 256 bytes, sem caractere nulo.")
         crypto_modules()  # Missing dependency must not consume a device login attempt.
-    if read_info and password is None:
-        raise ValueError("A leitura exige autenticação com senha e certificado fixado.")
+    if (read_info or scan_only) and password is None:
+        raise ValueError("A leitura/análise exige autenticação com senha e certificado fixado.")
     result = {
-        "probe_version": 4,
+        "probe_version": 5,
         "state": "not_connected",
         "port": PORT,
         "vendor_chain_verified": False,
@@ -578,6 +680,12 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         result.update(password_proof_attempted=False, password_proof_sent=False,
                       server_proof_verified=False, account_credentials_verified=False,
                       account_role_verified=False, session_token_received=False)
+    if scan_only:
+        result.update(apply_command_sent=False, scan={
+            "state": "not_requested", "request_attempted": False, "request_sent": False,
+            "response_received": False, "fresh_scan_confirmed": False,
+            "result_may_be_cached": True,
+        })
     started = time.monotonic()
     try:
         context = make_context()
@@ -622,9 +730,11 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
                         if result["state"] == "pake_parameters_received":
                             shared_key = authenticate(tls, deadline, message["result"], owner_email,
                                                       password, user_random, result)
-                            if read_info and shared_key is not None:
-                                read_information(tls, shared_key, timeout, result)
-                # Each mode closes this session; no retries or network mutations.
+                            if (read_info or scan_only) and shared_key is not None:
+                                reader = read_information(tls, shared_key, timeout, result, allow_scan=scan_only)
+                                if scan_only:
+                                    scan_information(reader, timeout, scan_timeout, result)
+                # Each mode closes this session; no retries or channel application.
     except ProtocolError as error:
         result.update(state="protocol_error", protocol_error=str(error))
     except ssl.SSLCertVerificationError as error:
@@ -653,10 +763,14 @@ def main():
                        help="Testar um login com senha oculta; não executa análise ou otimização")
     modes.add_argument("--read-info", action="store_true",
                        help="Login e leitura única de modo, canais e inventário; sem varredura")
+    modes.add_argument("--scan-only", action="store_true",
+                       help="Uma análise de interferência no X50 1.30/1.8.4 roteador; nunca aplica canais")
+    parser.add_argument("--scan-timeout", type=int, default=120,
+                        help="Prazo da análise: 30 a 180 segundos (padrão: 120)")
     args = parser.parse_args()
     owner_email = None
     password = None
-    login = args.authenticate or args.read_info
+    login = args.authenticate or args.read_info or args.scan_only
     if args.pake_parameters or login:
         if not args.expected_sha256:
             parser.error("A negociação/login exige --expected-sha256.")
@@ -680,12 +794,15 @@ def main():
             return 1
     try:
         options = {"read_info": True} if args.read_info else {}
+        if args.scan_only:
+            options = {"scan_only": True, "scan_timeout": args.scan_timeout}
         result = probe(args.host, args.timeout, args.expected_sha256,
                        owner_email=owner_email, password=password, **options)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    success = ("readonly_verified",) if args.read_info else ("authentication_verified",) if args.authenticate else (
+    success = ("scan_response_received",) if args.scan_only else (
+        "readonly_verified",) if args.read_info else ("authentication_verified",) if args.authenticate else (
         "pake_parameters_received",) if args.pake_parameters else ("tls_verified",)
     return 0 if result["state"] in success else 1
 

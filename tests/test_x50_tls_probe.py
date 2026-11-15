@@ -254,7 +254,8 @@ class AuthenticationProbeTests(unittest.TestCase):
         self.assertEqual(shared.hex(), "0c5f8ccd1413423a54f6c1fb26ff01534a87f893779c6e68666d772bfd91f3e7")
 
     def run_server(self, password=PASSWORD, change_params=None, change_reply=None,
-                   pin=PIN, send_error=None, read_info=False, channel_peer=None):
+                   pin=PIN, send_error=None, read_info=False, channel_peer=None,
+                   scan_only=False, scan_timeout=120):
         """Independent verifier role, replying to each actual framed request.
 
         Never uses the production prover/transcript helpers to build its proof.
@@ -354,7 +355,8 @@ class AuthenticationProbeTests(unittest.TestCase):
         with patch.object(probe, "make_context", return_value=context), patch.object(
                 probe.socket, "create_connection", return_value=raw) as connect:
             result = probe.probe("192.168.68.1", expected_sha256=pin,
-                                 owner_email=self.EMAIL, password=password, read_info=read_info)
+                                 owner_email=self.EMAIL, password=password, read_info=read_info,
+                                 scan_only=scan_only, scan_timeout=scan_timeout)
         self.assertEqual(connect.call_count, 1)
         tls.__exit__.assert_called_once()
         for secret in (self.EMAIL, self.PASSWORD, password, "PRIVATE", "dev_confirm", "user_share",
@@ -490,9 +492,12 @@ class AuthenticationProbeTests(unittest.TestCase):
 class ReadOnlyPeer:
     """Independent framed TMP server over CCM; all traffic stays in memory."""
 
-    def __init__(self, mutate_wire=None, mutate_tmp=None, api_error=False):
+    def __init__(self, mutate_wire=None, mutate_tmp=None, api_error=False,
+                 responses=None, on_request=None):
         self.mutate_wire, self.mutate_tmp = mutate_wire, mutate_tmp
         self.api_error = api_error
+        self.responses = responses or {}
+        self.on_request = on_request
         self.sequence = 0x12345678
         self.client_sequences = []
         self.requests = []
@@ -562,7 +567,9 @@ class ReadOnlyPeer:
             assert kind == 2 and offset == 0 and total == len(body)
             self.requests.append(op)
             # Deliberately do not use the production allowlist to validate writes.
-            assert op in (1, 0x40A0, 0x4009, 0x400F)
+            assert op in (1, 0x40A0, 0x4009, 0x400F) or (op == 0x424F and op in self.responses)
+            if self.on_request:
+                self.on_request(op)
             if op == 1:
                 assert body == b""
                 response = self.tmp_response(op, tx, b"a" * 32)
@@ -580,10 +587,11 @@ class ReadOnlyPeer:
                     0x400F: {"device_list": [{"device_model": "X50", "hardware_ver": "1.0",
                          "software_ver": "1.8.4 Build 26051413 Rel. 27460", "role": "master",
                          "device_id": "PRIVATE", "mac": "PRIVATE", "nickname": "PRIVATE"}]},
-                }[op]
+                }.get(op)
                 message = {"error_code": 1, "message": "PRIVATE"} if self.api_error and op == 0x4009 else {
                     "error_code": 0, "result": content}
-                full = json.dumps(message).encode()
+                message = self.responses.get(op, message)
+                full = message if isinstance(message, bytes) else json.dumps(message).encode()
                 self.remainder = (op, tx, full)
                 response = self.tmp_response(op, tx, full[:47], len(full))
         if self.mutate_tmp:
@@ -731,3 +739,233 @@ class ReadOnlyProbeTests(unittest.TestCase):
             self.assertEqual(probe.main(), 0)
             self.assertEqual(prompt.call_count, 2)
             self.assertTrue(run.call_args.kwargs["read_info"])
+
+
+class ScanProbeTests(unittest.TestCase):
+    def peer(self, needed=True, **kwargs):
+        # Shape reported by the physical X50 on 15/11/2026. No host/radio
+        # channel is present; its backhaul numbers must stay in that scope.
+        responses = {
+            0x400F: {"error_code": 0, "result": {"device_list": [
+                {"device_model": "X50", "hardware_ver": "1.30", "role": role,
+                 "software_ver": "1.8.4 Build 26051413 Rel. 27460"}
+                for role in ("master", "slave")]}},
+            0x4009: {"error_code": 0, "result": {
+                "band2_4": {"radio": {"htmode": "HT40"}, "backhaul": {"channel": 10}},
+                "band5_1": {"radio": {"htmode": "HT80"}, "backhaul": {"channel": 36}},
+            }},
+            0x424F: {"error_code": 0, "result": {
+                "need_optimize": needed, "optimize_item": {"channel": needed, "PRIVATE": "PRIVATE"},
+                "optimize_time": 20, "PRIVATE": "PRIVATE"}},
+        }
+        return ReadOnlyPeer(responses=responses, **kwargs)
+
+    def run_peer(self, peer=None, **kwargs):
+        peer = peer or self.peer()
+        result, tls, _ = AuthenticationProbeTests().run_server(
+            scan_only=True, channel_peer=peer, **kwargs)
+        return result, tls, peer
+
+    def test_one_scan_after_preflight_then_channel_observation_never_apply(self):
+        for needed in (True, False):
+            with self.subTest(needed=needed):
+                result, _, peer = self.run_peer(self.peer(needed))
+                self.assertEqual(peer.requests, [1, 0x40A0, 0x4009, 0x400F, 0x424F, 0x4009])
+                self.assertEqual(peer.pulls.count(0x424F), 1)
+                self.assertEqual(result["state"], "scan_response_received")
+                self.assertEqual(result["stage"], "complete")
+                self.assertEqual(result["optimization"], "not_tested")
+                self.assertFalse(result["apply_command_sent"])
+                scan = result["scan"]
+                self.assertTrue(scan["request_attempted"])
+                self.assertTrue(scan["request_sent"])
+                self.assertTrue(scan["response_received"])
+                self.assertEqual(scan["need_optimize"], needed)
+                self.assertEqual(scan["estimated_apply_seconds"], 20)
+                self.assertFalse(scan["fresh_scan_confirmed"])
+                self.assertTrue(scan["result_may_be_cached"])
+                self.assertEqual(result["channel_comparison"], {
+                    "state": "complete", "compared_fields": [
+                        {"band": "band2_4", "section": "backhaul"},
+                        {"band": "band5_1", "section": "backhaul"}],
+                    "channel_changes": [], "observed_channels_changed": False})
+
+    def test_unchanged_physical_read_fixture_still_never_sends_scan(self):
+        result, _, peer = ReadOnlyProbeTests().run_peer(self.peer())
+        self.assertEqual(result["state"], "readonly_verified")
+        self.assertEqual(peer.requests, [1, 0x40A0, 0x4009, 0x400F])
+        self.assertEqual(result["reads"]["devices"]["data"]["nodes"][0]["hardware"], "1.30")
+        self.assertNotIn("scan", result)
+
+    def test_unauthenticated_or_incomplete_preflight_never_scans(self):
+        for kwargs in ({"password": "wrong"}, {"pin": "0" * 64}):
+            result, _, peer = self.run_peer(**kwargs)
+            self.assertFalse(result["scan"]["request_attempted"])
+            self.assertEqual(peer.requests, [])
+        for op in (0x40A0, 0x4009, 0x400F):
+            peer = self.peer()
+            peer.responses[op] = {"error_code": 1}
+            result, _, peer = self.run_peer(peer)
+            self.assertEqual(result["state"], "scan_preflight_failed")
+            self.assertFalse(result["scan"]["request_attempted"])
+            self.assertNotIn(0x424F, peer.requests)
+
+    def test_other_primary_profile_is_read_but_not_scanned(self):
+        for key, value in (("device_model", "M9Plus"), ("hardware_ver", "1.0"),
+                           ("software_ver", "1.8.0"), ("role", "slave")):
+            peer = self.peer()
+            peer.responses[0x400F]["result"]["device_list"][0][key] = value
+            result, _, peer = self.run_peer(peer)
+            self.assertEqual(result["state"], "scan_target_unsupported")
+            self.assertNotIn(0x424F, peer.requests)
+        peer = self.peer()
+        peer.responses[0x40A0] = {"error_code": 0, "result": {"mode": "AP"}}
+        self.assertEqual(self.run_peer(peer)[0]["state"], "scan_target_unsupported")
+
+    def test_rejection_or_inconsistent_recommendation_does_not_retry_or_apply(self):
+        for response, state in (
+            ({"error_code": -4104, "message": "PRIVATE"}, "scan_rejected"),
+            ({"error_code": 0, "result": None}, "scan_response_unrecognized"),
+            ({"error_code": 0, "result": {"need_optimize": True,
+                "optimize_item": {"channel": False}}}, "scan_response_unrecognized"),
+            ({"error_code": 0, "result": {"need_optimize": 1,
+                "optimize_item": {"channel": True}}}, "scan_response_unrecognized"),
+        ):
+            peer = self.peer()
+            peer.responses[0x424F] = response
+            result, _, peer = self.run_peer(peer)
+            self.assertEqual(result["state"], state)
+            self.assertNotIn("need_optimize", result["scan"])
+            self.assertEqual(peer.requests.count(0x424F), 1)
+            self.assertFalse(result["apply_command_sent"])
+
+    def test_invalid_scan_json_fails_closed_with_redacted_report(self):
+        for body in (b'PRIVATE', b'{"error_code":true}',
+                     b'{"error_code":0,"error_code":1}', b'{"error_code":999999999999}'):
+            peer = self.peer()
+            peer.responses[0x424F] = body
+            result, _, peer = self.run_peer(peer)
+            self.assertEqual(result["state"], "protocol_error")
+            self.assertEqual(result["scan"]["state"], "scan_response_unrecognized")
+            self.assertEqual(peer.requests.count(0x424F), 1)
+            self.assertEqual(peer.requests.count(0x4009), 1)
+
+    def test_partial_scan_send_is_uncertain_without_reconnect_or_retry(self):
+        def fail(op):
+            if op == 0x424F:
+                raise TimeoutError()
+        result, _, peer = self.run_peer(self.peer(on_request=fail))
+        self.assertEqual(result["state"], "timeout")
+        self.assertEqual(result["stage"], "scan")
+        self.assertEqual(result["scan"]["state"], "response_unknown")
+        self.assertTrue(result["scan"]["request_attempted"])
+        self.assertFalse(result["scan"]["request_sent"])
+        self.assertFalse(result["scan"]["response_received"])
+        self.assertIsNone(result["application_bytes_sent"])
+        self.assertEqual(peer.requests.count(0x424F), 1)
+
+    def test_reply_timeout_uses_scan_deadline_and_does_not_resend(self):
+        original = probe.TMPReader.request
+        with patch.object(probe.TMPReader, "request", autospec=True) as request:
+            # Exercise the real request implementation except the scan receive.
+            def operation(reader, opcode, timeout):
+                if opcode != 0x424F:
+                    return original(reader, opcode, timeout)
+                self.assertEqual(timeout, 150)
+                with patch.object(reader.channel, "exact", side_effect=TimeoutError()):
+                    return original(reader, opcode, timeout)
+            request.side_effect = operation
+            result, _, peer = self.run_peer(scan_timeout=150)
+        self.assertEqual(result["state"], "timeout")
+        self.assertTrue(result["scan"]["request_sent"])
+        self.assertFalse(result["scan"]["response_received"])
+        self.assertEqual(peer.requests.count(0x424F), 1)
+
+    def test_second_scan_blocked_even_after_uncertain_first_send(self):
+        channel = MagicMock()
+        channel.report = {"scan": {}}
+        channel.send.side_effect = TimeoutError()
+        reader = probe.TMPReader(channel, allow_scan=True)
+        with self.assertRaises(TimeoutError):
+            reader.request(0x424F, 120)
+        with self.assertRaisesRegex(probe.ProtocolError, "scan_already_attempted"):
+            reader.request(0x424F, 120)
+        for opcode in (0x4250, 0x4008, 0x40A1, 0x4016):
+            with self.assertRaisesRegex(probe.ProtocolError, "tmp_opcode_not_allowed"):
+                reader.request(opcode, 20)
+        channel.send.assert_called_once()
+
+    def test_post_scan_failure_preserves_received_recommendation(self):
+        peer = self.peer()
+        def fail(op):
+            if op == 0x4009 and 0x424F in peer.requests:
+                raise ConnectionRefusedError()
+        peer.on_request = fail
+        result, _, _ = self.run_peer(peer)
+        self.assertEqual(result["state"], "connection_refused")
+        self.assertEqual(result["stage"], "read_channels_after_scan")
+        self.assertEqual(result["scan"]["state"], "scan_response_received")
+        self.assertNotIn("channel_comparison", result)
+        self.assertEqual(peer.requests.count(0x424F), 1)
+
+    def test_post_scan_api_error_does_not_claim_complete_observation(self):
+        peer = self.peer()
+        def reject(op):
+            if op == 0x4009 and 0x424F in peer.requests:
+                peer.responses[op] = {"error_code": 1}
+        peer.on_request = reject
+        result, _, _ = self.run_peer(peer)
+        self.assertEqual(result["state"], "scan_observation_incomplete")
+        self.assertEqual(result["scan"]["state"], "scan_response_received")
+        self.assertEqual(result["channel_comparison"]["state"], "unavailable")
+        self.assertIsNone(result["channel_comparison"]["observed_channels_changed"])
+
+    def test_channel_change_is_scoped_and_never_claims_application(self):
+        peer = self.peer()
+        def change(op):
+            if op == 0x4009 and 0x424F in peer.requests:
+                peer.responses[op]["result"]["band2_4"]["backhaul"]["channel"] = 6
+        peer.on_request = change
+        result, _, _ = self.run_peer(peer)
+        self.assertEqual(result["channel_comparison"]["channel_changes"], [
+            {"band": "band2_4", "section": "backhaul", "before": 10, "after": 6}])
+        self.assertTrue(result["channel_comparison"]["observed_channels_changed"])
+        self.assertFalse(result["apply_command_sent"])
+        self.assertEqual(result["optimization"], "not_tested")
+
+    def test_comparison_never_conflates_scopes_or_missing_observations(self):
+        before = {"state": "available", "data": {"band2_4": {"backhaul": {"channel": 10}}}}
+        for after in ({"state": "api_error"}, {"state": "available", "data": {
+                "band2_4": {"radio": {"channel": 6}}}}):
+            out = probe.compare_channels(before, after)
+            self.assertEqual(out["state"], "unavailable")
+            self.assertIsNone(out["observed_channels_changed"])
+        after = {"state": "available", "data": {"band2_4": {
+            "backhaul": {"channel": 10}, "host": {"channel": 6}}}}
+        self.assertEqual(probe.compare_channels(before, after)["state"], "partial")
+
+    def test_scan_credentials_timeout_and_mode_checked_before_connecting(self):
+        for args in ({"scan_only": True}, {"scan_timeout": 29}, {"scan_timeout": 181},
+                     {"scan_timeout": True}, {"read_info": True, "scan_only": True}):
+            with patch.object(probe.socket, "create_connection") as connect:
+                with self.assertRaises(ValueError):
+                    probe.probe("192.168.68.1", **args)
+                connect.assert_not_called()
+
+    def test_cli_scan_uses_hidden_credentials_and_only_explicit_mode(self):
+        args = ["probe", "192.168.68.1", "--expected-sha256", AuthenticationProbeTests.PIN,
+                "--scan-only", "--scan-timeout", "150"]
+        with patch.object(probe.sys, "argv", args), patch.object(probe.sys.stdin, "isatty", return_value=True), \
+                patch.object(probe.getpass, "getpass", side_effect=["owner@example.test", "secret"]) as prompt, \
+                patch.object(probe, "probe", return_value={"state": "scan_response_received"}) as run, \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(probe.main(), 0)
+            self.assertEqual(prompt.call_count, 2)
+            self.assertTrue(run.call_args.kwargs["scan_only"])
+            self.assertEqual(run.call_args.kwargs["scan_timeout"], 150)
+        for flags in (("--scan-only", "--read-info"), ("--scan-only", "--authenticate"), ("--scan-only",)):
+            with patch.object(probe.sys, "argv", ["probe", "192.168.68.1", *flags]), \
+                    patch.object(probe, "probe") as run, patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    probe.main()
+                run.assert_not_called()
