@@ -14,6 +14,12 @@ from unittest.mock import MagicMock, patch
 import zlib
 
 
+def hkdf32(key, salt, info):
+    # Independent one-block RFC 5869 expansion, not the production HKDF helper.
+    prk = hmac.digest(salt or b"\0" * 32, key, "sha256")
+    return hmac.digest(prk, info + b"\x01", "sha256")
+
+
 spec = importlib.util.spec_from_file_location(
     "x50_tls_probe", Path(__file__).resolve().parents[1] / "tools/x50_tls_probe.py")
 probe = importlib.util.module_from_spec(spec)
@@ -239,15 +245,16 @@ class AuthenticationProbeTests(unittest.TestCase):
         server = bytes.fromhex(
             "04c0f65da0d11927bdf5d560c69e1d7d939a05b0e88291887d679fcadea75810fb5"
             "cc1ca7494db39e82ff2f50665255d76173e09986ab46742c798a9a68437b048")
-        share, own, peer = probe._spake2p_proofs(context, w0, w1, scalar, server, b"client", b"server")
+        share, own, peer, shared = probe._spake2p_proofs(context, w0, w1, scalar, server, b"client", b"server")
         self.assertEqual(share.hex(),
                          "04ef3bd051bf78a2234ec0df197f7828060fe9856503579bb1733009042c15c0c1d"
                          "e127727f418b5966afadfdd95a6e4591d171056b333dab97a79c7193e341727")
         self.assertEqual(own.hex(), "926cc713504b9b4d76c9162ded04b5493e89109f6d89462cd33adc46fda27527")
         self.assertEqual(peer.hex(), "9747bcc4f8fe9f63defee53ac9b07876d907d55047e6ff2def2e7529089d3e68")
+        self.assertEqual(shared.hex(), "0c5f8ccd1413423a54f6c1fb26ff01534a87f893779c6e68666d772bfd91f3e7")
 
     def run_server(self, password=PASSWORD, change_params=None, change_reply=None,
-                   pin=PIN, send_error=None):
+                   pin=PIN, send_error=None, read_info=False, channel_peer=None):
         """Independent verifier role, replying to each actual framed request.
 
         Never uses the production prover/transcript helpers to build its proof.
@@ -289,6 +296,9 @@ class AuthenticationProbeTests(unittest.TestCase):
 
         def send(packet):
             nonlocal user_random
+            if packet[2] == 2 and channel_peer is not None:
+                pending.extend(channel_peer.accept(packet))
+                return
             request = json.loads(packet[24:])
             requests.append(request)
             self.assertEqual(request["method"], "login")
@@ -318,6 +328,8 @@ class AuthenticationProbeTests(unittest.TestCase):
                 transcript = b"".join(len(p).to_bytes(8, "little") + p for p in parts)
                 keys = HKDF(hashlib.sha256(transcript).digest(), 64, b"", SHA256,
                             context=b"ConfirmationKeys")
+                if channel_peer is not None:
+                    channel_peer.bind(hkdf32(hashlib.sha256(transcript).digest(), b"", b"SharedKey"))
                 expected = hmac.digest(keys[:32], server_share, "sha256")
                 if not hmac.compare_digest(base64.b64decode(request["params"]["user_confirm"]), expected):
                     response = {"error_code": -2203, "message": "PRIVATE_AUTH_FAILURE"}
@@ -342,7 +354,7 @@ class AuthenticationProbeTests(unittest.TestCase):
         with patch.object(probe, "make_context", return_value=context), patch.object(
                 probe.socket, "create_connection", return_value=raw) as connect:
             result = probe.probe("192.168.68.1", expected_sha256=pin,
-                                 owner_email=self.EMAIL, password=password)
+                                 owner_email=self.EMAIL, password=password, read_info=read_info)
         self.assertEqual(connect.call_count, 1)
         tls.__exit__.assert_called_once()
         for secret in (self.EMAIL, self.PASSWORD, password, "PRIVATE", "dev_confirm", "user_share",
@@ -473,3 +485,249 @@ class AuthenticationProbeTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 probe.main()
             run.assert_not_called()
+
+
+class ReadOnlyPeer:
+    """Independent framed TMP server over CCM; all traffic stays in memory."""
+
+    def __init__(self, mutate_wire=None, mutate_tmp=None, api_error=False):
+        self.mutate_wire, self.mutate_tmp = mutate_wire, mutate_tmp
+        self.api_error = api_error
+        self.sequence = 0x12345678
+        self.client_sequences = []
+        self.requests = []
+        self.pulls = []
+        self.remainder = None
+        self.last_frame = None
+        self.keepalives = 0
+
+    def bind(self, shared):
+        self.key = hkdf32(shared, b"tp-kdf-salt-aes128-key", b"tp-kdf-info-aes128-key")[:16]
+        self.iv = hkdf32(shared, b"tp-kdf-salt-aes128-iv", b"tp-kdf-info-aes128-iv")[:8]
+
+    def frame(self, data):
+        from Crypto.Cipher import AES
+        seq = self.sequence.to_bytes(4, "little")
+        self.sequence += 1
+        cipher = AES.new(self.key, AES.MODE_CCM, nonce=self.iv + seq, mac_len=16)
+        ciphertext, tag = cipher.encrypt_and_digest(data)
+        body = ciphertext + tag
+        head = b"\x01\x01\x02\0" + len(body).to_bytes(4, "big") + b"TMP\0\0\0\0\0" + seq
+        frame = head + zlib.crc32(head + bytes.fromhex("92bf30ed") + body).to_bytes(4, "big") + body
+        if self.mutate_wire:
+            frame = self.mutate_wire(frame)
+        return frame
+
+    @staticmethod
+    def tmp_response(opcode, tx, chunk, total=None, offset=0):
+        total = len(chunk) if total is None else total
+        business = struct.pack(">BBHBBHIII", 1, 2, opcode, 5, 0, tx,
+                               zlib.crc32(chunk), total, offset) + chunk
+        header = b"\x01\x01\x05\0" + struct.pack(">HHI", len(business), 0, 777)
+        crc = zlib.crc32(header + bytes.fromhex("5a6b7c8d") + business)
+        return header + crc.to_bytes(4, "big") + business
+
+    def accept(self, packet):
+        from Crypto.Cipher import AES
+        assert packet[:4] == b"\x01\x01\x02\0"
+        assert packet[8:16] == b"TMP\0\0\0\0\0"
+        assert int.from_bytes(packet[4:8], "big") == len(packet) - 24
+        assert int.from_bytes(packet[20:24], "big") == zlib.crc32(
+            packet[:20] + bytes.fromhex("92bf30ed") + packet[24:])
+        seq = packet[16:20]
+        assert seq not in self.client_sequences
+        if self.client_sequences:
+            assert int.from_bytes(seq, "little") == int.from_bytes(self.client_sequences[-1], "little") + 1
+        self.client_sequences.append(seq)
+        cipher = AES.new(self.key, AES.MODE_CCM, nonce=self.iv + seq, mac_len=16)
+        data = cipher.decrypt_and_verify(packet[24:-16], packet[-16:])
+        if data == b"\x01\x01\x04\0":
+            self.keepalives += 1
+            return b""
+        assert data[:4] == b"\x01\x01\x05\0"
+        assert int.from_bytes(data[4:6], "big") == len(data) - 16
+        assert int.from_bytes(data[12:16], "big") == zlib.crc32(
+            data[:12] + bytes.fromhex("5a6b7c8d") + data[16:])
+        v, sub, op, kind, err, tx, crc, total, offset = struct.unpack_from(">BBHBBHIII", data, 16)
+        assert (v, sub, err) == (1, 2, 0)
+        body = data[36:]
+        assert crc == zlib.crc32(body)
+        if kind == 4:
+            previous_op, previous_tx, full = self.remainder
+            assert (op, tx) == (previous_op, previous_tx)
+            assert body == b"" and total == 0 and offset == 47
+            self.pulls.append(op)
+            response = self.tmp_response(op, tx, full[offset:], len(full), offset)
+        else:
+            assert kind == 2 and offset == 0 and total == len(body)
+            self.requests.append(op)
+            # Deliberately do not use the production allowlist to validate writes.
+            assert op in (1, 0x40A0, 0x4009, 0x400F)
+            if op == 1:
+                assert body == b""
+                response = self.tmp_response(op, tx, b"a" * 32)
+            else:
+                request = json.loads(body)
+                assert set(request) == {"config_version", "params"} and request["params"] == {}
+                content = {
+                    0x40A0: {"mode": "Router", "owner": "PRIVATE"},
+                    0x4009: {
+                        "band2_4": {"host": {"channel": "9", "password": "PRIVATE", "ssid": "PRIVATE"},
+                                    "radio": {"channel": "9", "htmode": "HE40", "bssid": "PRIVATE"}},
+                        "band5_1": {"radio": {"channel": "36", "htmode": "HE80"},
+                                    "backhaul": {"channel": 36}},
+                    },
+                    0x400F: {"device_list": [{"device_model": "X50", "hardware_ver": "1.0",
+                         "software_ver": "1.8.4 Build 26051413 Rel. 27460", "role": "master",
+                         "device_id": "PRIVATE", "mac": "PRIVATE", "nickname": "PRIVATE"}]},
+                }[op]
+                message = {"error_code": 1, "message": "PRIVATE"} if self.api_error and op == 0x4009 else {
+                    "error_code": 0, "result": content}
+                full = json.dumps(message).encode()
+                self.remainder = (op, tx, full)
+                response = self.tmp_response(op, tx, full[:47], len(full))
+        if self.mutate_tmp:
+            response = self.mutate_tmp(response)
+        # Exercise both stream splitting and coalescing across TPAP frames,
+        # plus independent TMP business fragments requested with a pull.
+        output = self.frame(response[:7])
+        output += self.frame(response[7:] + b"\x01\x01\x04\0\x01\x01\x02\0")
+        self.last_frame = output
+        return output
+
+
+class ReadOnlyProbeTests(unittest.TestCase):
+    def run_peer(self, peer=None, **kwargs):
+        peer = peer or ReadOnlyPeer()
+        result, tls, requests = AuthenticationProbeTests().run_server(
+            read_info=True, channel_peer=peer, **kwargs)
+        return result, tls, peer
+
+    def test_authenticated_encrypted_tmp_reads_without_scan_or_apply(self):
+        result, tls, peer = self.run_peer()
+        self.assertEqual(result["state"], "readonly_verified")
+        self.assertTrue(result["tmp_session_verified"])
+        self.assertEqual(result["optimization"], "not_tested")
+        self.assertFalse(result["account_role_verified"])
+        self.assertEqual(peer.requests, [1, 0x40A0, 0x4009, 0x400F])
+        self.assertEqual(peer.pulls, [0x40A0, 0x4009, 0x400F])
+        self.assertGreater(peer.keepalives, 0)
+        self.assertGreater(result["channel_frames_received"], 4)
+        self.assertEqual(result["reads"]["mode"]["data"], {"mode": "Router"})
+        self.assertEqual(result["reads"]["channels"]["data"]["band2_4"]["radio"],
+                         {"channel": 9, "htmode": "HE40"})
+        self.assertEqual(result["reads"]["devices"]["data"]["nodes"][0]["model"], "X50")
+        self.assertEqual(result["application_messages_sent"], tls.sendall.call_count)
+        self.assertEqual(result["application_bytes_sent"], sum(len(c.args[0]) for c in tls.sendall.call_args_list))
+
+    def test_read_mode_requires_credentials_and_verified_mutual_proof(self):
+        with patch.object(probe.socket, "create_connection") as connect:
+            with self.assertRaises(ValueError):
+                probe.probe("192.168.68.1", read_info=True)
+            connect.assert_not_called()
+        for kwargs in ({"password": "wrong"}, {"pin": "0" * 64}, {"change_reply": lambda r:
+                r["result"].update(dev_confirm=base64.b64encode(b"0" * 32).decode())}):
+            _, tls, peer = self.run_peer(**kwargs)
+            self.assertEqual(peer.requests, [])
+            self.assertLessEqual(tls.sendall.call_count, 2)
+
+    def test_channel_tag_corruption_is_rejected_even_with_valid_crc(self):
+        def corrupt(frame):
+            body = frame[24:-1] + bytes([frame[-1] ^ 1])
+            return frame[:20] + zlib.crc32(frame[:20] + bytes.fromhex("92bf30ed") + body).to_bytes(4, "big") + body
+        result, tls, peer = self.run_peer(ReadOnlyPeer(mutate_wire=corrupt))
+        self.assertEqual(result["protocol_error"], "channel_tag_mismatch")
+        self.assertEqual(result["stage"], "tmp_allocate")
+        self.assertEqual(peer.requests, [1])
+        self.assertEqual(tls.sendall.call_count, 3)
+
+    def test_wrong_channel_header_crc_and_size_stop_without_retry(self):
+        for mutate, code in (
+            (lambda f: f[:1] + b"\x02" + f[2:], "unexpected_channel_header"),
+            (lambda f: f[:8] + b"OTHER\0\0\0" + f[16:], "unexpected_channel_header"),
+            (lambda f: f[:20] + b"\0" * 4 + f[24:], "channel_checksum_mismatch"),
+            (lambda f: f[:4] + b"\xff" * 4 + f[8:], "invalid_channel_length"),
+        ):
+            with self.subTest(code=code):
+                result, tls, peer = self.run_peer(ReadOnlyPeer(mutate_wire=mutate))
+                self.assertEqual(result["protocol_error"], code)
+                self.assertEqual(tls.sendall.call_count, 3)
+
+    def test_replayed_channel_frame_is_rejected(self):
+        previous = []
+        def repeat(frame):
+            if not previous:
+                previous.append(frame)
+            return previous[0]
+        result, _, _ = self.run_peer(ReadOnlyPeer(mutate_wire=repeat))
+        self.assertEqual(result["protocol_error"], "repeated_channel_sequence")
+
+    def test_tmp_correlation_checks_survive_valid_encryption(self):
+        def changed(field, value):
+            def mutate(data):
+                payload = bytearray(data[16:])
+                start, size = field
+                payload[start:start+size] = value.to_bytes(size, "big")
+                crc = zlib.crc32(data[:12] + bytes.fromhex("5a6b7c8d") + payload)
+                return data[:12] + crc.to_bytes(4, "big") + payload
+            return mutate
+        for field, value, code in (
+            ((6, 2), 9, "tmp_response_mismatch"),
+            ((2, 2), 0x4250, "tmp_response_mismatch"),
+            ((12, 4), 262145, "tmp_fragment_invalid"),
+            ((16, 4), 1, "tmp_fragment_invalid"),
+            ((8, 4), 0, "tmp_business_invalid"),
+            ((5, 1), 1, "tmp_request_rejected"),
+        ):
+            with self.subTest(code=code):
+                result, _, peer = self.run_peer(ReadOnlyPeer(mutate_tmp=changed(field, value)))
+                self.assertEqual(result["protocol_error"], code)
+                self.assertEqual(peer.requests, [1])
+
+    def test_api_failure_does_not_claim_all_reads_verified(self):
+        result, _, peer = self.run_peer(ReadOnlyPeer(api_error=True))
+        self.assertEqual(result["state"], "readonly_incomplete")
+        self.assertEqual(result["reads"]["channels"], {"state": "api_error", "api_code": 1})
+        self.assertEqual(peer.requests, [1, 0x40A0, 0x4009, 0x400F])
+
+    def test_arbitrary_writes_and_acs_reads_are_blocked_before_send(self):
+        channel = MagicMock()
+        for opcode in (0x424F, 0x4250, 0x4263, 0x4016, 0x4008, 0x40A1):
+            with self.assertRaisesRegex(probe.ProtocolError, "tmp_opcode_not_allowed"):
+                probe.TMPReader(channel).request(opcode, 20)
+        channel.send.assert_not_called()
+
+    def test_read_projectors_reject_unknown_and_malformed_values(self):
+        for name, result in (("mode", {"mode": "PRIVATE"}), ("devices", {"device_list": []}),
+                             ("channels", {"band2_4": {"radio": {"channel": True, "htmode": "PRIVATE"}}})):
+            out = probe.project_read(name, json.dumps({"error_code": 0, "result": result}).encode())
+            self.assertEqual(out["state"], "unrecognized_response")
+            self.assertNotIn("PRIVATE", str(out))
+        for body in (b'[]', b'{"error_code":true}', b'{"error_code":0,"error_code":1}', b'not json'):
+            with self.assertRaises(probe.ProtocolError):
+                probe.project_read("mode", body)
+
+    def test_channel_deadline_and_send_limits(self):
+        report = {"application_bytes_sent": 0, "application_messages_sent": 0,
+                  "channel_frames_received": 0}
+        tls = MagicMock()
+        channel = probe.TMPChannel(tls, b"s" * 32, report)
+        channel.deadline = time.monotonic() - 1
+        with self.assertRaises(TimeoutError):
+            channel.exact(4)
+        with self.assertRaises(TimeoutError):
+            channel.send(b"test")
+        tls.sendall.assert_not_called()
+        channel.sent_frames = 1024
+        with self.assertRaisesRegex(probe.ProtocolError, "channel_send_limit"):
+            channel.send(b"test")
+
+    def test_cli_read_info_uses_hidden_client_credentials(self):
+        args = ["probe", "192.168.68.1", "--expected-sha256", AuthenticationProbeTests.PIN, "--read-info"]
+        with patch.object(probe.sys, "argv", args), patch.object(probe.sys.stdin, "isatty", return_value=True), \
+                patch.object(probe.getpass, "getpass", side_effect=["owner@example.test", "secret"]) as prompt, \
+                patch.object(probe, "probe", return_value={"state": "readonly_verified"}) as run, \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(probe.main(), 0)
+            self.assertEqual(prompt.call_count, 2)
+            self.assertTrue(run.call_args.kwargs["read_info"])

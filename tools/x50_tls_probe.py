@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Standalone X50 TLS probe with optional single TPAP authentication.
+"""Standalone X50 TLS, authentication and fixed read-only TMP diagnostics.
 
-No TMP channel, network scan or channel application, in any mode.
+No interference scan or channel application, in any mode.
 
-Python 3.9+; --authenticate also requires PyCryptodome. The public CA comes from the official
+Python 3.9+; --authenticate/--read-info require PyCryptodome. The public CA comes from the official
 X50 1.8.4 firmware documented in RESEARCH.md. It is scoped to this connection;
 it is never installed in the operating system's trust store.
 """
@@ -31,6 +31,10 @@ PORT = 30001
 HEADER = struct.Struct(">BBBBI8s4sI")
 CRC_SEED = 0x92BF30ED
 MAX_BODY = 8192
+TMP_CHANNEL = b"TMP\0\0\0\0\0"
+MAX_CHANNEL_BODY = 65535 + 16 + 16  # TMP business + transport + CCM tag.
+MAX_TMP_RESULT = 262144
+READ_OPS = {"mode": 0x40A0, "channels": 0x4009, "devices": 0x400F}
 P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 # RFC 9383 P-256 points, also present verbatim in the X50 1.8.4 library.
 SPAKE_M = bytes.fromhex(
@@ -207,7 +211,7 @@ def crypto_modules():
         from Crypto.Protocol.KDF import HKDF
         from Crypto.Hash import SHA256
     except ImportError:
-        raise ValueError("Para --authenticate, instale py3-pycryptodome no Terminal/SSH.") from None
+        raise ValueError("Para login/leitura, instale py3-pycryptodome no Terminal/SSH.") from None
     return ECC, HKDF, SHA256
 
 
@@ -254,7 +258,8 @@ def _spake2p_proofs(context, w0, w1, scalar, server_share, prover_id=b"", verifi
     confirmation_keys = HKDF(main_key, 64, b"", SHA256, context=b"ConfirmationKeys")
     user_confirm = hmac.digest(confirmation_keys[:32], server_share, "sha256")
     dev_confirm = hmac.digest(confirmation_keys[32:], client_share, "sha256")
-    return client_share, user_confirm, dev_confirm
+    shared_key = HKDF(main_key, 32, b"", SHA256, context=b"SharedKey")
+    return client_share, user_confirm, dev_confirm, shared_key
 
 
 def password_proofs(params, owner_email, password, user_random):
@@ -280,7 +285,7 @@ def password_proofs(params, owner_email, password, user_random):
 
 
 def authenticate(tls, deadline, params, owner_email, password, user_random, result):
-    share, proof, expected = password_proofs(params, owner_email, password, user_random)
+    share, proof, expected, shared_key = password_proofs(params, owner_email, password, user_random)
     packet, sequence = auth_packet({"method": "login", "params": {
         "sub_method": "pake_share", "user_share": base64.b64encode(share).decode("ascii"),
         "user_confirm": base64.b64encode(proof).decode("ascii"),
@@ -312,9 +317,226 @@ def authenticate(tls, deadline, params, owner_email, password, user_random, resu
         raise ProtocolError("invalid_session_token")
     result.update(state="authentication_verified", authentication="verified",
                   account_credentials_verified=True, session_token_received=True)
+    return shared_key  # In memory only, released to the caller AFTER mutual proof.
 
 
-def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None):
+class TMPChannel:
+    """Firmware TPAP type-2 TMP byte stream, bound to the authenticated TLS socket."""
+
+    def __init__(self, tls, shared_key, report):
+        from Crypto.Cipher import AES
+        _, HKDF, SHA256 = crypto_modules()
+        self.AES = AES
+        self.key = HKDF(shared_key, 32, b"tp-kdf-salt-aes128-key", SHA256,
+                        context=b"tp-kdf-info-aes128-key")[:16]
+        self.iv = HKDF(shared_key, 32, b"tp-kdf-salt-aes128-iv", SHA256,
+                       context=b"tp-kdf-info-aes128-iv")[:8]
+        self.tls, self.report = tls, report
+        self.sequence = secrets.randbelow(2**32 - 1024)
+        self.seen = set()
+        self.buffer = bytearray()
+        self.deadline = 0
+        self.received_bytes = 0
+        self.sent_frames = 0
+
+    def send(self, plaintext):
+        if self.sent_frames >= 1024 or not 0 < len(plaintext) <= MAX_CHANNEL_BODY - 16:
+            raise ProtocolError("channel_send_limit")
+        sequence = struct.pack("<I", self.sequence)
+        self.sequence += 1  # Never reuse a nonce, even after an uncertain send.
+        self.sent_frames += 1
+        cipher = self.AES.new(self.key, self.AES.MODE_CCM, nonce=self.iv + sequence, mac_len=16)
+        encrypted, tag = cipher.encrypt_and_digest(plaintext)
+        body = encrypted + tag
+        # Native channel frames use flag 1 in BOTH directions; login replies use 2.
+        header = HEADER.pack(1, 1, 2, 0, len(body), TMP_CHANNEL, sequence, CRC_SEED)
+        packet = header[:20] + struct.pack(">I", zlib.crc32(header + body)) + body
+        remaining_timeout(self.tls, self.deadline)
+        sent = self.report["application_bytes_sent"]
+        self.report["application_bytes_sent"] = None
+        self.tls.sendall(packet)
+        self.report["application_bytes_sent"] = sent + len(packet)
+        self.report["application_messages_sent"] += 1
+
+    def exact(self, size):
+        while len(self.buffer) < size:
+            header = receive_exact(self.tls, HEADER.size, self.deadline)
+            version, flags, kind, reserved, length, channel, sequence, crc = HEADER.unpack(header)
+            if (version, flags, kind, reserved, channel) != (1, 1, 2, 0, TMP_CHANNEL):
+                raise ProtocolError("unexpected_channel_header")
+            if not 16 < length <= MAX_CHANNEL_BODY:
+                raise ProtocolError("invalid_channel_length")
+            if sequence in self.seen:
+                raise ProtocolError("repeated_channel_sequence")
+            if len(self.seen) >= 1024 or self.received_bytes + length > 2 * 1024 * 1024:
+                raise ProtocolError("channel_receive_limit")
+            body = receive_exact(self.tls, length, self.deadline)
+            if zlib.crc32(header[:20] + struct.pack(">I", CRC_SEED) + body) != crc:
+                raise ProtocolError("channel_checksum_mismatch")
+            cipher = self.AES.new(self.key, self.AES.MODE_CCM, nonce=self.iv + sequence, mac_len=16)
+            try:
+                plaintext = cipher.decrypt_and_verify(body[:-16], body[-16:])
+            except ValueError:
+                raise ProtocolError("channel_tag_mismatch") from None
+            self.seen.add(sequence)
+            self.received_bytes += length
+            self.buffer.extend(plaintext)
+            self.report["channel_frames_received"] += 1
+        data = bytes(self.buffer[:size])
+        del self.buffer[:size]
+        return data
+
+
+class TMPReader:
+    """ALLOC plus three fixed reads; no scan, apply or arbitrary opcode interface."""
+
+    def __init__(self, channel):
+        self.channel = channel
+        self.sequence = 0
+        self.transaction = -1
+
+    def send(self, opcode, body, offset=0, pull=False):
+        if opcode not in (1, *READ_OPS.values()):
+            raise ProtocolError("tmp_opcode_not_allowed")
+        self.sequence += 1
+        business = struct.pack(">BBHBBHIII", 1, 2, opcode, 4 if pull else 2, 0,
+                               self.transaction, zlib.crc32(body), len(body), offset) + body
+        header = struct.pack(">BBBBHHI", 1, 1, 5, 0, len(business), 0, self.sequence)
+        crc = zlib.crc32(header + bytes.fromhex("5a6b7c8d") + business)
+        self.channel.send(header + struct.pack(">I", crc) + business)
+
+    def request(self, opcode, timeout):
+        self.channel.deadline = time.monotonic() + timeout
+        self.transaction += 1
+        body = b"" if opcode == 1 else json.dumps({
+            "config_version": int(time.time() * 1000), "params": {}
+        }, separators=(",", ":")).encode()
+        self.send(opcode, body)
+        result = bytearray()
+        expected_total = None
+        for _ in range(512):
+            prefix = self.channel.exact(4)
+            if prefix == b"\x01\x01\x04\x00":
+                self.channel.send(prefix)  # TMP keepalive, not another operation.
+                continue
+            if prefix == b"\x01\x01\x02\x00":
+                continue
+            if prefix != b"\x01\x01\x05\x00":
+                raise ProtocolError("unexpected_tmp_header")
+            header = prefix + self.channel.exact(12)
+            size = struct.unpack_from(">H", header, 4)[0]
+            if size < 20:
+                raise ProtocolError("invalid_tmp_length")
+            payload = self.channel.exact(size)
+            if zlib.crc32(header[:12] + bytes.fromhex("5a6b7c8d") + payload) != struct.unpack_from(">I", header, 12)[0]:
+                raise ProtocolError("tmp_checksum_mismatch")
+            version, subversion, returned, kind, error, tx, crc, total, offset = struct.unpack_from(">BBHBBHIII", payload)
+            chunk = payload[20:]
+            if (version, subversion) != (1, 2) or zlib.crc32(chunk) != crc:
+                raise ProtocolError("tmp_business_invalid")
+            if (returned, kind, tx) != (opcode, 5, self.transaction):
+                raise ProtocolError("tmp_response_mismatch")
+            if error:
+                self.channel.report["tmp_error_code"] = error
+                raise ProtocolError("tmp_request_rejected")
+            if (total > MAX_TMP_RESULT or offset != len(result)
+                    or (expected_total is not None and total != expected_total)):
+                raise ProtocolError("tmp_fragment_invalid")
+            expected_total = total
+            result.extend(chunk)
+            if len(result) > MAX_TMP_RESULT or (total and len(result) > total):
+                raise ProtocolError("tmp_result_too_large")
+            if total == 0 or len(result) == total:
+                return bytes(result)
+            if not chunk:
+                raise ProtocolError("tmp_empty_fragment")
+            self.send(opcode, b"", offset=len(result), pull=True)
+        raise ProtocolError("tmp_frame_limit")
+
+
+def project_read(name, body):
+    """Whitelist product metadata and channel numbers; never export raw WLAN JSON."""
+    try:
+        message = json.loads(body.decode("utf-8"), object_pairs_hook=unique_object)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ProtocolError("invalid_tmp_json") from None
+    code = api_code(message)
+    if code:
+        return {"state": "api_error", "api_code": code}
+    data = message.get("result")
+    if not isinstance(data, dict):
+        return {"state": "unrecognized_response", "api_code": 0}
+    out = {}
+    if name == "mode":
+        mode = data.get("mode")
+        if mode in ("Router", "AP", "FAP", "HAP", "RE", "LTE", "Mobile_5G", "Mobile_Bridge"):
+            out["mode"] = mode
+    elif name == "devices":
+        devices = data.get("device_list")
+        if isinstance(devices, list) and 0 < len(devices) <= 64:
+            nodes = []
+            for device in devices:
+                if not isinstance(device, dict):
+                    continue
+                node = {}
+                for source, target, pattern in (
+                    ("device_model", "model", r"(?:Deco )?[A-Z]{1,3}[0-9]{1,4}(?:Plus|R|S)?(?:\([A-Z]{2}\))?"),
+                    ("hardware_ver", "hardware", r"[0-9]{1,2}(?:\.[0-9]{1,2}){0,2}"),
+                    ("software_ver", "firmware", r"[0-9.]{3,20}(?: Build [0-9]{6,10} Rel[. ]{0,2}[0-9]{1,6})?"),
+                ):
+                    value = device.get(source)
+                    if isinstance(value, str) and re.fullmatch(pattern, value):
+                        node[target] = value
+                if device.get("role") in ("master", "slave"):
+                    node["role"] = device["role"]
+                if "model" in node:
+                    nodes.append(node)
+            if nodes:
+                out = {"node_count": len(devices), "nodes": nodes}
+    elif name == "channels":
+        for band in ("band2_4", "band5_1", "band5_2", "band6", "band6_2"):
+            config = data.get(band)
+            if not isinstance(config, dict):
+                continue
+            sections = {}
+            for section in ("radio", "host", "backhaul"):
+                values = config.get(section)
+                if not isinstance(values, dict):
+                    continue
+                clean = {}
+                channel = values.get("channel")
+                if isinstance(channel, str) and re.fullmatch(r"[0-9]{1,3}", channel):
+                    channel = int(channel)
+                if type(channel) is int and 1 <= channel <= 233:
+                    clean["channel"] = channel
+                for key in ("htmode", "channel_width", "bandwidth"):
+                    width = values.get(key)
+                    if isinstance(width, str) and re.fullmatch(r"(?:HT|VHT|HE|EHT)?(?:20|40|80|160|240|320)", width):
+                        clean[key] = width
+                if clean:
+                    sections[section] = clean
+            if any("channel" in value for value in sections.values()):
+                out[band] = sections
+    return {"state": "available" if out else "unrecognized_response", "api_code": 0, "data": out}
+
+
+def read_information(tls, shared_key, timeout, result):
+    result.update(stage="tmp_allocate", tmp_session_verified=False,
+                  channel_frames_received=0, reads={})
+    reader = TMPReader(TMPChannel(tls, shared_key, result))
+    token = reader.request(1, timeout)
+    if not re.fullmatch(b"[0-9a-fA-F]{32}", token):
+        raise ProtocolError("invalid_tmp_session")
+    del token
+    result["tmp_session_verified"] = True
+    for name, opcode in READ_OPS.items():
+        result["stage"] = "read_" + name
+        result["reads"][name] = project_read(name, reader.request(opcode, timeout))
+    complete = all(read["state"] == "available" for read in result["reads"].values())
+    result.update(state="readonly_verified" if complete else "readonly_incomplete", stage="complete")
+
+
+def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None, read_info=False):
     # Literal unicast IPs avoid DNS delays and accidental broadcast discovery.
     address = ipaddress.ip_address(host)
     if address.is_unspecified or address.is_multicast:
@@ -337,8 +559,10 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         if not isinstance(password, str) or not 1 <= len(password.encode("utf-8")) <= 256 or "\0" in password:
             raise ValueError("Informe uma senha não vazia de até 256 bytes, sem caractere nulo.")
         crypto_modules()  # Missing dependency must not consume a device login attempt.
+    if read_info and password is None:
+        raise ValueError("A leitura exige autenticação com senha e certificado fixado.")
     result = {
-        "probe_version": 3,
+        "probe_version": 4,
         "state": "not_connected",
         "port": PORT,
         "vendor_chain_verified": False,
@@ -396,9 +620,11 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
                         # PAKE verifies account credentials, not owner/admin permissions.
                         result.pop("owner_account_verified", None)
                         if result["state"] == "pake_parameters_received":
-                            authenticate(tls, deadline, message["result"], owner_email,
-                                         password, user_random, result)
-                # Close even after successful login. Never open a TMP channel.
+                            shared_key = authenticate(tls, deadline, message["result"], owner_email,
+                                                      password, user_random, result)
+                            if read_info and shared_key is not None:
+                                read_information(tls, shared_key, timeout, result)
+                # Each mode closes this session; no retries or network mutations.
     except ProtocolError as error:
         result.update(state="protocol_error", protocol_error=str(error))
     except ssl.SSLCertVerificationError as error:
@@ -425,13 +651,16 @@ def main():
                         help="Consultar uma vez os parâmetros TPAP; não solicita senha")
     modes.add_argument("--authenticate", action="store_true",
                        help="Testar um login com senha oculta; não executa análise ou otimização")
+    modes.add_argument("--read-info", action="store_true",
+                       help="Login e leitura única de modo, canais e inventário; sem varredura")
     args = parser.parse_args()
     owner_email = None
     password = None
-    if args.pake_parameters or args.authenticate:
+    login = args.authenticate or args.read_info
+    if args.pake_parameters or login:
         if not args.expected_sha256:
             parser.error("A negociação/login exige --expected-sha256.")
-        if args.authenticate:
+        if login:
             try:
                 crypto_modules()
             except ValueError as error:
@@ -443,19 +672,20 @@ def main():
             with warnings.catch_warnings():
                 warnings.simplefilter("error", getpass.GetPassWarning)
                 owner_email = getpass.getpass("E-mail da conta proprietária TP-Link (entrada oculta): ").strip()
-                if args.authenticate:
+                if login:
                     password = getpass.getpass("Senha dessa conta TP-Link (entrada oculta): ")
         except getpass.GetPassWarning:
             parser.error("Este Terminal não permite entrada oculta; nenhuma conexão foi iniciada.")
         except (EOFError, KeyboardInterrupt):
             return 1
     try:
+        options = {"read_info": True} if args.read_info else {}
         result = probe(args.host, args.timeout, args.expected_sha256,
-                       owner_email=owner_email, password=password)
+                       owner_email=owner_email, password=password, **options)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    success = ("authentication_verified",) if args.authenticate else (
+    success = ("readonly_verified",) if args.read_info else ("authentication_verified",) if args.authenticate else (
         "pake_parameters_received",) if args.pake_parameters else ("tls_verified",)
     return 0 if result["state"] in success else 1
 

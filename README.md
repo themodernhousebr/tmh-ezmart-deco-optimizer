@@ -30,7 +30,7 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | Firmware oficial correspondente analisado: comandos ACS presentes, transporte TPAP. No teste do operador, TLS/30001 e negociação inicial PAKE passaram, com certificado conferido. Diagnóstico de login completo preparado; autenticação com senha e otimização ainda não validadas no equipamento. O app atual **não implementa TPAP** |
+| X50 como roteador principal, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001 e login SPAKE2+ confirmados no equipamento, com certificado fixado e prova do servidor conferida. Leitura TMP preparada no diagnóstico independente; leitura física e otimização ainda pendentes. O app atual **não implementa TPAP** |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
 O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos e a diferença entre a etiqueta V1.0 informada pelo operador e a página oficial V1.30 do build instalado. O nome `m9_acs` não é uma promessa de compatibilidade com X50. Até validar um X50 representativo, mantenha `tmp_enabled: false` e `mqtt_commands_enabled: false` nesse equipamento. Monitoramento HTTPS também depende do firmware e precisa ser conferido.
@@ -39,7 +39,7 @@ Na 0.8.0-dev.1, o piloto confirmou criação das entidades e envio/conclusão de
 
 ### Diagnóstico X50 sem rebuild
 
-[tools/x50_tls_probe.py](tools/x50_tls_probe.py) é um diagnóstico independente para o X50 US acima, executado no Terminal/SSH do HA que está na mesma rede. Os modos TLS e parâmetros requerem somente Python 3.9 ou superior; no app Terminal/SSH baseado em Alpine, `apk add --no-cache python3` instala o interpretador. O modo de login também requer PyCryptodome. Depois de baixar o arquivo para `/tmp`:
+[tools/x50_tls_probe.py](tools/x50_tls_probe.py) é um diagnóstico independente para o X50 US acima, executado no Terminal/SSH do HA que está na mesma rede. Os modos TLS e parâmetros requerem somente Python 3.9 ou superior; no app Terminal/SSH baseado em Alpine, `apk add --no-cache python3` instala o interpretador. Os modos de login e leitura também requerem PyCryptodome. Depois de baixar o arquivo para `/tmp`:
 
 ```sh
 python3 /tmp/x50_tls_probe.py 192.168.68.1
@@ -61,7 +61,7 @@ Substitua a impressão pelo `certificate_sha256` da primeira execução nesse X5
 
 Esse modo inicia apenas a negociação `pake_register` para uma conta existente e informa os algoritmos e tamanhos recebidos. Não cria conta, pede senha, envia prova de senha, abre canal TMP, solicita análise ou aplica canais. Há somente uma tentativa, com validação de enquadramento, sequência, checksum, tamanho e prazo. `pake_parameters_received` **não confirma login nem a existência da conta**: o firmware pode gerar parâmetros fictícios para usuário desconhecido. O relatório omite salts, nonces, pontos criptográficos, tokens e hashes de conta. O operador confirmou essa negociação no X50 do cliente: API 0, suíte 1, AES-128-CCM, 100.000 iterações, sem `extra_crypt`, com certificado correspondente ao primeiro teste.
 
-A revisão 3 acrescenta o teste de **um login completo**, ainda aguardando validação física:
+A revisão 3 acrescentou o teste de **um login completo**, confirmado no X50 do cliente em 15/11/2026 (0,388 segundo, duas mensagens e 540 bytes enviados):
 
 ```sh
 apk add --no-cache python3 py3-pycryptodome
@@ -74,7 +74,17 @@ O e-mail e a senha **da conta do cliente** são digitados com entrada oculta no 
 
 Sucesso exige `state: authentication_verified`, `authentication: verified`, `account_credentials_verified: true` e `server_proof_verified: true`. Uma resposta API 0 sem prova válida nunca basta. `account_role_verified: false` significa que as permissões de proprietário/administrador não foram consultadas; não indica falha da senha. O token recebido é conferido apenas quanto à presença/formato e não aparece no relatório. `authentication_rejected` conserva apenas o código de erro, sem concluir que a causa é necessariamente senha incorreta. Não há nova tentativa automática. Após uma recusa, confira a conta e o resultado antes de repetir.
 
-Todos os modos fecham a conexão sem abrir canal TMP, buscar interferência ou aplicar canais. O modo de login pode estabelecer uma sessão de autenticação no X50 e uma tentativa recusada pode contar para o bloqueio do equipamento. O sucesso do login ainda não homologa otimização. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
+Os modos acima fecham a conexão sem abrir canal TMP. A revisão 4 acrescenta uma opção separada que autentica, abre esse canal e consulta uma vez modo de operação, canais e inventário:
+
+```sh
+python3 /tmp/x50_tls_probe.py 192.168.68.1 \
+  --expected-sha256 IMPRESSAO_OBTIDA_NESTE_X50 \
+  --timeout 20 --read-info
+```
+
+Use as credenciais do cliente nos mesmos prompts ocultos. O prazo é de 20 segundos para o login e para cada uma das quatro operações TMP (alocação e três leituras), até aproximadamente 100 segundos no conjunto. Não há repetição automática. O relatório mantém `authentication: verified` se o login passou, mesmo que uma etapa posterior falhe. `tmp_session_verified: true` confirma a abertura TMP; `readonly_verified` exige as três respostas reconhecidas. `readonly_incomplete` significa que alguma leitura foi recusada ou apresentou formato desconhecido. `stage` identifica onde ocorreu uma eventual falha de transporte. Os canais são separados entre `radio`, `host` e `backhaul`, conforme disponíveis, sem confundir configuração e leitura do rádio.
+
+O relatório omite senhas Wi-Fi, SSIDs, MACs, nomes de cômodos, IDs e tokens. Nenhum modo busca interferência ou aplica canais; `optimization` continua `not_tested`. A leitura preparada passou pelos testes simulados, mas ainda precisa ser executada no X50 físico. O login pode estabelecer uma sessão e uma tentativa recusada pode contar para o bloqueio do equipamento. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
 
 ## Automações e acompanhamento
 
@@ -89,7 +99,7 @@ O blueprint de repetição continua mesmo se a câmera voltar, até uma aplicaç
 
 ## Desenvolvimento e suporte
 
-Runtime: Python 3.14, SDK tplink-deco-api 2.1.1, Paramiko 5.1.0 e Paho MQTT 2.1.0. Para os testes, use um ambiente isolado com PyYAML, Jinja2 e Paho MQTT:
+Runtime: Python 3.14, SDK tplink-deco-api 2.1.1, Paramiko 5.1.0 e Paho MQTT 2.1.0. Para os testes, use um ambiente isolado com PyYAML, Jinja2, Paho MQTT e PyCryptodome:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
