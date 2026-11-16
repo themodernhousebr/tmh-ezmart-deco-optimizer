@@ -11,6 +11,8 @@ import m9_actions
 import guest_wifi
 
 LOG = logging.getLogger('ezmart')
+GUEST_CONFIRMED_STATES = frozenset(('guest_enabled_verified', 'guest_disabled_verified',
+                                   'guest_already_set', 'guest_state_confirmed_without_ack'))
 
 
 def iso(value):
@@ -95,7 +97,7 @@ class Controller:
                 raise ValueError()
             if (request.get('target_hash') != guest_wifi.target_hash(self.options)
                     or self.clock() > request['expires_at']
-                    or self.guest.state.get('result') == 'interrupted_no_replay'):
+                    or self.guest.state.get('result') not in GUEST_CONFIRMED_STATES):
                 self.save_guest_queue(None)
                 return
             self.scheduled_guest = request
@@ -128,6 +130,7 @@ class Controller:
                     self.save_guest_queue(None)
                 except Exception:
                     self.fault = 'guest_queue_storage_error'
+                    self.scheduled_guest = None
                 LOG.info('Pedido agendado de visitantes cancelado: %s.', 'expired' if expired else reason)
                 return
             if temporary or self.clock() < request['not_before']:
@@ -137,6 +140,7 @@ class Controller:
                 self.save_guest_queue(None)
             except Exception:
                 self.fault = 'guest_queue_storage_error'
+                self.scheduled_guest = None
                 return
             LOG.info('Executando pedido agendado de visitantes: %s.', request['action'])
             return self.accept_guest(request['action'])
@@ -320,9 +324,7 @@ class Controller:
                     self.guest_observed = result['observed']
                 try:
                     self.guest.finish(result)
-                    if (self.scheduled_guest is not None and result.get('state') not in
-                            ('guest_enabled_verified', 'guest_disabled_verified', 'guest_already_set',
-                             'guest_state_confirmed_without_ack')):
+                    if (self.scheduled_guest is not None and result.get('state') not in GUEST_CONFIRMED_STATES):
                         self.save_guest_queue(None)
                         LOG.info('Pedido agendado de visitantes cancelado após falha ou resultado incerto; nenhum reenvio automático.')
                 except Exception:

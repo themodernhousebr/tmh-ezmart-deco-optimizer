@@ -346,6 +346,10 @@ class GuestTests(unittest.TestCase):
         self.controller.save = Mock(side_effect=OSError('PRIVATE'))
         self.controller.dispatch_scheduled_guest()
         self.assertEqual(self.controller.fault, 'guest_queue_storage_error')
+        self.assertIsNone(self.controller.scheduled_guest)
+        self.controller.save.reset_mock()
+        self.controller.dispatch_scheduled_guest()
+        self.controller.save.assert_not_called()
         self.assertIsNone(self.controller.pending)
         self.assertEqual(len(self.write_calls), 1)
 
