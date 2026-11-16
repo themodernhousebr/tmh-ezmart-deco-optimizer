@@ -1,7 +1,7 @@
 configuration:
   deco_model:
     name: Modelo do Deco principal
-    description: m9_plus mantém o transporte M9. x50 usa TLS. Perfis Router: 1.30 / 1.8.4 Build 26051413 Rel. 27460 e piloto 1.0 / 1.11.1 Build 26081714 Rel. 32981. Não há troca automática de transporte.
+    description: m5 é piloto somente leitura HTTP para coletar inventário; ações permanecem bloqueadas. m9_plus mantém o transporte M9. x50 usa TLS. Perfis Router: 1.30 / 1.8.4 Build 26051413 Rel. 27460 e piloto 1.0 / 1.11.1 Build 26081714 Rel. 32981. Não há troca automática de transporte.
   x50_certificate_mode:
     name: X50 — obtenção do certificado
     description: automatic obtém e salva o certificado validado do fabricante na primeira conexão. pinned exige preenchimento manual. Um certificado já informado tem prioridade; mudanças de identidade são bloqueadas.

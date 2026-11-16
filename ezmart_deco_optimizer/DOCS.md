@@ -255,3 +255,22 @@ Preserve certificado, credenciais e históricos. Use `tmp_timeout_seconds: 30` e
 Um comando recebido durante o minuto de proteção, ou enquanto outro comando de visitantes está em execução, fica agendado. Apenas o último estado pedido é mantido. Ao terminar o intervalo e liberar o trabalhador, o app executa o pedido uma vez, com todas as validações normais. O interruptor continua mostrando o estado observado, sem antecipar o resultado. Nos atributos aparecem `scheduled_action`, `scheduled_for` e `scheduled_expires_at`; os logs distinguem agendamento, execução e cancelamento.
 
 A intenção ainda não enviada é salva por alvo e pode sobreviver ao reinício. Ela é consumida em disco antes de reservar a execução; falha, queda ou reinício após isso não causam reenvio. Uma falha ou resultado incerto do comando ativo cancela a intenção aguardando. Pedidos vencem cinco minutos após o horário previsto; desativação dos comandos, troca do alvo ou bloqueios permanentes também cancelam. Não há fila para otimização nem agendamento de novos pedidos recusados por autenticação ou por operação de otimização em andamento.
+
+## M5 — piloto somente leitura (0.11.0-dev.11)
+
+Selecione `deco_model: m5`, sem se apresentar como M9. A análise offline do pacote oficial 1.9.5 Build 20260602 Rel. 25369 confirmou o formulário HTTP `admin/device/device_list/read` e os campos de modelo, revisão, firmware e papel. A primeira etapa é coletar o hardware real de cada instalação. Nenhuma revisão é presumida pelo firmware.
+
+```yaml
+deco_model: m5
+host: 192.168.68.1
+password: SENHA_DA_CONTA_DESTA_REDE
+poll_seconds: 300
+mqtt_enabled: true
+tmp_enabled: false
+mqtt_commands_enabled: false
+guest_control_enabled: false
+```
+
+Mantenha as opções MQTT válidas da instalação. `username` usa `admin` por padrão; não é o e-mail da conta. A senha é usada na autenticação HTTP local. Campos `tmp_email`, `tmp_password`, chave SSH e certificado X50 não são usados para esta coleta. Configure o IP realmente acessível pelo Home Assistant.
+
+Após salvar e iniciar, compartilhe `Resumo da Mesh` e o nome da instalação. Campos `hardware` e `role` aparecem quando informados e reconhecidos; MAC, nome do cliente, apelido, identificadores e respostas brutas não são publicados. `m5_readonly_pilot` significa que ações estão deliberadamente bloqueadas nesta etapa. Mesmo ativar os campos de comandos não libera otimização, controle de visitantes, ações de inicialização ou transporte TMP. A leitura independente de canais pode não ser oferecida em todas as revisões; isso não deve impedir a coleta do inventário.

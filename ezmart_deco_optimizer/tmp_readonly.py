@@ -206,6 +206,8 @@ def scan_request(options, data):
 def run_probe(options, data, save, clock=time.time, channel_snapshot=None, should_stop=lambda: False, wait=None,
               guest_job=None, guest_control=None):
     """One connection per process. A missing pin discovers identity without auth."""
+    if options.get('deco_model') == 'm5':
+        return {'state': 'm5_readonly_pilot', 'write_attempted': False}
     action = 'read' if guest_job is not None else options.get('tmp_action', 'read')
     if guest_job is not None:
         from guest_wifi import enabled

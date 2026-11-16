@@ -74,6 +74,8 @@ def discovery(identity, base, version, session, model='m9_plus', guest_enabled=F
               'manufacturer': 'The Modern House', 'model': 'Deco Optimizer — piloto M9 V2', 'sw_version': version}
     if model == 'x50':
         device['model'] = 'Deco Optimizer — X50 1.30 / 1.8.4'
+    elif model == 'm5':
+        device['model'] = 'Deco Optimizer — M5 (somente leitura)'
     messages = []
     for domain, suffix, field, extra_name, extra in ENTITIES:
         if model == 'x50' and suffix.startswith('canal_'):

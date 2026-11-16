@@ -182,6 +182,8 @@ class Controller:
         return None
 
     def reason(self, action='optimize'):
+        if self.options.get('deco_model') == 'm5':
+            return 'm5_readonly_pilot'
         if self.fault:
             return self.fault
         if not self.options.get('mqtt_commands_enabled', False) or not self.options.get('tmp_enabled', False):
@@ -387,7 +389,7 @@ class Controller:
                 'channels_at': iso(channels.get('updated_at', 0)),
                 'performance_at': iso(self.monitor.get('diagnostics', {}).get('performance', {}).get('updated_at', 0)),
                 'guest_enabled': guest.get('enabled'),
-                'commands_available': (not self.fault and self.options.get('tmp_enabled', False)
+                'commands_available': (self.options.get('deco_model') != 'm5' and not self.fault and self.options.get('tmp_enabled', False)
                                        and self.options.get('mqtt_commands_enabled', False)),
                 'guest_available': (guest_wifi.enabled(self.options) and not self.fault
                                     and self.options.get('tmp_enabled', False)

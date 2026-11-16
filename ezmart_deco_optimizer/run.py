@@ -2,6 +2,7 @@
 import ipaddress
 import json
 import logging
+import re
 import os
 from pathlib import Path
 import signal
@@ -9,7 +10,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.10'
+VERSION = '0.11.0-dev.11'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -70,7 +71,7 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
         LOG.info('Ciclo %s: leitura X50 de modo, inventário e backhaul; sem análise ACS.', cycle)
         return client.collect(cycle, VERSION)
     status = {'updated_at': int(time.time()), 'available': True, 'cycle': cycle, 'version': VERSION}
-    status['read_only'] = not (options.get('tmp_enabled', False) and
+    status['read_only'] = options.get('deco_model') == 'm5' or not (options.get('tmp_enabled', False) and
                                ((options.get('mqtt_enabled', False) and options.get('mqtt_commands_enabled', False)) or
                                 (not options.get('mqtt_enabled', False) and options.get('tmp_action') in ('scan', 'optimize'))))
     LOG.info('Ciclo %s iniciado.', cycle)
@@ -91,7 +92,16 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
                 continue
             raise
         if method == 'get_device_list':
-            status['nodes'] = [{'model': item.device_model, 'firmware': item.software_ver} for item in result]
+            status['nodes'] = []
+            for item in result:
+                node = {'model': item.device_model, 'firmware': item.software_ver}
+                hardware = getattr(item, 'hardware_ver', None)
+                if isinstance(hardware, str) and re.fullmatch(r'[0-9]{1,2}(?:\.[0-9]{1,2}){0,2}', hardware):
+                    node['hardware'] = hardware
+                role = getattr(item, 'role', None)
+                if role in ('master', 'slave'):
+                    node['role'] = role
+                status['nodes'].append(node)
         else:
             status['mode'] = result.workmode
     for name in PROBES:
@@ -128,6 +138,9 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
         LOG.info('Diagnóstico %s: %s', name, json.dumps(result, ensure_ascii=True))
     status['diagnostics'] = dict(probe_results)
     status['unsupported'] = sorted(disabled)
+    if options.get('deco_model') == 'm5':
+        status['profile_supported'] = False
+        status['unsupported'] = sorted(set(status['unsupported']) | {'optimization', 'guest_control'})
     status['available'] = 'nodes' in status and 'mode' in status
     return status
 
@@ -144,11 +157,11 @@ def main():
     try:
         options = json.loads((data / 'options.json').read_text())
         model = options.get('deco_model', 'm9_plus')
-        if model not in ('m9_plus', 'x50'):
+        if model not in ('m9_plus', 'x50', 'm5'):
             raise ValueError()
         host = str(ipaddress.ip_address(options['host']))
         password, username = options.get('password', ''), options.get('username', 'admin')
-        interval = options.get('poll_seconds', 30)
+        interval = options.get('poll_seconds', 300 if model == 'm5' else 30)
         if type(interval) is not int or not 30 <= interval <= 86400:
             raise ValueError()
         if model == 'x50':

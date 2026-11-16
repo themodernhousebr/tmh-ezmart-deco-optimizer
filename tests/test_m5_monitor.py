@@ -1,0 +1,95 @@
+"""M5 pilot collects inventory while all action paths remain closed."""
+import json
+from pathlib import Path
+import sys
+import tempfile
+import threading
+from types import SimpleNamespace
+import unittest
+from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'ezmart_deco_optimizer'))
+import run
+import ha_control
+import mqtt_bridge
+import tmp_readonly
+import m9_actions
+
+
+class M5MonitorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.data = Path(self.temp.name)
+        self.options = dict(deco_model='m5', host='192.168.68.1', password='PRIVATE',
+                            mqtt_enabled=True, tmp_enabled=True, mqtt_commands_enabled=True,
+                            guest_control_enabled=True, tmp_scan_backend='m9_acs')
+        self.stop = threading.Event()
+
+    def client(self):
+        client = MagicMock()
+        client.get_device_list.return_value = [SimpleNamespace(device_model='M5',
+            software_ver='1.9.5 Build 20260602 Rel. 25369', hardware_ver='3.20', role='master',
+            mac='PRIVATE', nickname='PRIVATE')]
+        client.get_device_mode.return_value = SimpleNamespace(workmode='Router')
+        client.request.return_value = {'band2_4': {'radio': {'channel': 6}},
+                                      'band5_1': {'radio': {'channel': 36}}}
+        return client
+
+    def test_inventory_projects_hardware_role_without_private_identifiers(self):
+        result = run.collect(self.client(), self.options, 1, set(), {}, {})
+        self.assertEqual(result['nodes'], [{'model':'M5', 'hardware':'3.20', 'role':'master',
+                           'firmware':'1.9.5 Build 20260602 Rel. 25369'}])
+        self.assertTrue(result['available'])
+        self.assertTrue(result['read_only'])
+        self.assertFalse(result['profile_supported'])
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_invalid_hardware_and_role_are_omitted(self):
+        client = self.client()
+        node = client.get_device_list.return_value[0]
+        node.hardware_ver = 'PRIVATE'
+        node.role = 'PRIVATE'
+        result = run.collect(client, self.options, 1, set(), {}, {})
+        self.assertNotIn('hardware', result['nodes'][0])
+        self.assertNotIn('role', result['nodes'][0])
+
+    def test_controller_and_transport_reject_actions_even_if_options_enabled(self):
+        control = ha_control.Controller(self.options, self.data, run.save)
+        control.set_monitor({'nodes':[], 'mode':'Router'}, True)
+        for action in ('optimize', 'verify'):
+            self.assertEqual(control.accept(action), 'm5_readonly_pilot')
+        self.assertEqual(control.accept('guest_on'), 'guest_control_disabled')
+        self.assertFalse(control.view()['commands_available'])
+        self.assertFalse(control.view()['guest_available'])
+        with patch.object(tmp_readonly.socket, 'create_connection') as connect:
+            for action in ('read', 'scan', 'optimize', 'verify'):
+                result = tmp_readonly.run_probe(dict(self.options, tmp_action=action), self.data, run.save)
+                self.assertEqual(result['state'], 'm5_readonly_pilot')
+            connect.assert_not_called()
+        with self.assertRaises(ValueError):
+            m9_actions.settings(self.options)
+        self.assertFalse(run.startup_action_enabled(dict(self.options, mqtt_enabled=False)))
+
+    def test_m5_runtime_reads_http_only_and_defaults_to_five_minutes(self):
+        run.save(self.data/'options.json', self.options)
+        sdk = SimpleNamespace(DecoClient=MagicMock(return_value=self.client()))
+        save = run.save
+        def store(path, value):
+            save(path, value)
+            if path.name == 'status.json':
+                self.stop.set()
+        with patch.dict(sys.modules, {'tplink_deco_api':sdk}), \
+                patch.object(run, 'Path', return_value=self.data), patch.object(run, 'STOP', self.stop), \
+                patch.object(run, 'save', side_effect=store), patch.object(mqtt_bridge, 'Bridge') as bridge, \
+                patch.object(tmp_readonly, 'run_probe') as action:
+            self.assertEqual(run.main(), 0)
+        action.assert_not_called()
+        sdk.DecoClient.assert_called_once_with('192.168.68.1', 'admin', 'PRIVATE', timeout=10)
+        status = json.loads((self.data/'status.json').read_text())
+        self.assertEqual(status['nodes'][0]['hardware'], '3.20')
+        self.assertEqual(bridge.call_args.args[0]['poll_seconds'], 300)
+
+
+if __name__ == '__main__':
+    unittest.main()

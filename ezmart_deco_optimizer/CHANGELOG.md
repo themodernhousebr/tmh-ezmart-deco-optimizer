@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0-dev.11
+
+- Piloto M5 somente leitura HTTP, com opção de modelo própria e intervalo padrão de 300 segundos. Coleta hardware e papel dos nós quando disponíveis; esses campos também enriquecem o inventário HTTP M9 existente.
+- Otimização, visitantes, ações de inicialização e transporte TMP permanecem bloqueados no perfil M5, inclusive com opções habilitadas por engano. Nenhuma revisão é presumida ou homologada por esse piloto.
+- Preserva os transportes e ações M9/X50 já existentes. Confirmação física da coleta M5 pendente.
+
 ## 0.11.0-dev.10
 
 - Comandos de visitantes durante o cooldown ou outro comando de visitantes ficam agendados; apenas o último estado solicitado é mantido e executado uma vez após liberação.

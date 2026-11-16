@@ -38,7 +38,7 @@ def target_hash(options):
 
 
 def settings(options):
-    if options.get('tmp_scan_backend') != 'm9_acs':
+    if options.get('deco_model') == 'm5' or options.get('tmp_scan_backend') != 'm9_acs':
         raise ValueError()
     result = {}
     for key, default, lower, upper in (
