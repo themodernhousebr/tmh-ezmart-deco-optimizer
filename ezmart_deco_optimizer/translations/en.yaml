@@ -49,7 +49,7 @@ configuration:
     name: Alternative MQTT TLS
   request_cooldown_seconds:
     name: Advanced — minimum request interval
-    description: At least 900 seconds for M9, 1800 for X50, including negative recommendations. Survives restart.
+    description: Default and minimum 600 seconds (10 minutes) for M9 and X50, including negative recommendations. Survives restart.
   poll_seconds:
     name: Advanced — monitoring interval
     description: Default 30 seconds for M9, minimum 60 for X50. Monitoring never requests ACS analysis.

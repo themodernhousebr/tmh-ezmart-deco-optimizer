@@ -1,5 +1,5 @@
 name: EZmart Deco Optimizer
-version: "0.11.0-dev.8"
+version: "0.11.0-dev.9"
 slug: ezmart_deco_optimizer
 url: https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer
 description: Otimização Deco sob demanda e entidades para automações Home Assistant
@@ -38,7 +38,7 @@ schema:
   mqtt_enabled: bool
   mqtt_commands_enabled: bool
   guest_control_enabled: bool?
-  request_cooldown_seconds: int(900,86400)?
+  request_cooldown_seconds: int(600,86400)?
   mqtt_host: str?
   mqtt_port: port?
   mqtt_username: str?

@@ -132,7 +132,7 @@ class ApplyTests(unittest.TestCase):
         reader = Reader()
         self.assertEqual(self.run_action(reader)['state'], 'apply_cooldown')
         self.assertEqual(reader.calls, [])
-        self.timer.value += 900
+        self.timer.value += 600
         self.assertIsNone(actions.prepare(self.options, self.data, self.timer.now())[1])
 
     def test_lost_ack_is_not_success_even_with_observed_change(self):

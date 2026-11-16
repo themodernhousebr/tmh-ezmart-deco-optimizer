@@ -19,7 +19,7 @@ configuration:
     description: Adiciona um interruptor para visitantes em 2,4 e 5 GHz. Usa a rede já configurada no Deco e confirma o estado por leitura. M9 V2 1.9.1 AP/FAP; X50 Router 1.30 / 1.8.4 e piloto 1.0 / 1.11.1. Ações no 1.11.1 aguardam validação física. Desativado por padrão.
   request_cooldown_seconds:
     name: Intervalo mínimo entre pedidos
-    description: Mínimo de 900 segundos no M9 e 1800 no X50, inclusive quando a análise não recomenda mudança. O intervalo é preservado após reinício.
+    description: Padrão e mínimo de 600 segundos (10 minutos) no M9 e X50, inclusive quando a análise não recomenda mudança. O intervalo é preservado após reinício.
   mqtt_host:
     name: Servidor MQTT alternativo
     description: Deixe vazio para usar automaticamente o Mosquitto fornecido pelo Supervisor.

@@ -133,8 +133,6 @@ def optimization_block(options, data, now):
             if entry['target_hash'] == target and r['apply_command_attempted']:
                 if r.get('verification', {}).get('state') != 'stable':
                     return 'previous_apply_unverified'
-                if now < r['apply_attempted_at'] + (1800 if options.get('deco_model') == 'x50' else 900):
-                    return 'apply_cooldown'
     except Exception:
         return 'invalid_optimize_journal'
     return None

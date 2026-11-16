@@ -77,10 +77,10 @@ O padrão interno do monitoramento é 30 s no M9 e mínimo 60 s no X50. Para o X
 1. Instalar/atualizar o pacote 0.9 uma vez. Selecionar `x50`, IP, conta desta rede e certificado conferido. Ativar MQTT; manter `mqtt_commands_enabled: false` durante a conferência inicial.
 2. Salvar e iniciar. Conferir log X50 TPAP/TLS, inventário, modo Router e sensores **Canal backhaul**. Não devem aparecer análise/aplicação apenas por iniciar ou reconectar MQTT.
 3. Para habilitar ações sob demanda, ativar `tmp_enabled` e `mqtt_commands_enabled`, salvar e reiniciar o app. A automação pode chamar o mesmo botão Otimizar se necessário usado no M9.
-4. Aguardar pelo menos 30 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
+4. Aguardar pelo menos 10 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
 5. Após uma necessidade real, conferir aceite API 0, verificação stable e ID do novo pedido. Verificar última aplicação observa somente a tentativa registrada **neste app**; antes da primeira aplicação pelo app, fica indisponível.
 
-O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 30 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio nem consulta de CPU/memória pelo transporte TPAP.
+O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 10 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio nem consulta de CPU/memória pelo transporte TPAP.
 
 A seção seguinte documenta exclusivamente o modo manual M9, preservado para instalações anteriores.
 
@@ -105,7 +105,7 @@ Salvar e iniciar/reiniciar apenas o EZmart Deco Optimizer. Não reiniciar HAOS, 
 
 O modo optimize envia uma análise M9, exige resposta reconhecida com `need_optimize: true` e `optimize_item.channel: true`, observa os canais e só então envia uma única aplicação. Se não houver recomendação, termina em `optimization_not_needed`. Não força canais nem aplica um resultado antigo do journal. A nova análise ainda pode receber cache do próprio firmware; não há identificador de coleta para eliminar essa incerteza.
 
-Antes de enviar aplicação, o ID e a reserva são sincronizados em disco. Uma queda de conexão ou reinício não provoca reenvio, nem quando a resposta se perde. O mesmo ID devolve `already_requested` antes de autenticar via TMP. Outro ID fica bloqueado se uma tentativa anterior não tiver verificação concluída ou ainda estiver dentro de 900 segundos. O registro associa ID, IP e identidade SSH; reutilizar ID em outro alvo é recusado. Uma trava local impede duas aplicações/verificações simultâneas no mesmo diretório de dados.
+Antes de enviar aplicação, o ID e a reserva são sincronizados em disco. Uma queda de conexão ou reinício não provoca reenvio, nem quando a resposta se perde. O mesmo ID devolve `already_requested` antes de autenticar via TMP. Outro ID fica bloqueado se uma tentativa anterior não tiver verificação concluída ou ainda estiver dentro de 600 segundos. O registro associa ID, IP e identidade SSH; reutilizar ID em outro alvo é recusado. Uma trava local impede duas aplicações/verificações simultâneas no mesmo diretório de dados.
 
 ## Verificação e recuperação
 
@@ -122,7 +122,7 @@ tmp_optimize_request_id: m9-opt-001
 
 Salvar e reiniciar o app. `verify` retoma somente observações HTTPS a partir do registro persistido; não abre SSH/TMP e não reenvia comandos. É permitido durante o cooldown de aplicação. Se a sessão HTTPS anterior expirou, o reinício permite autenticar novamente, respeitando o cooldown de autenticação. Os prazos podem ser ampliados nas opções sem rebuild. Resultado ausente ou registro inválido bloqueia a operação; não apagar arquivos para contornar o bloqueio.
 
-Após concluir, voltar a `tmp_action: read` ou `tmp_enabled: false`. Outra otimização deliberada exige um ID novo, análise positiva, verificação anterior concluída e intervalo mínimo de 15 minutos desde a última tentativa de aplicação. Não alterar o ID para tratar um resultado incerto.
+Após concluir, voltar a `tmp_action: read` ou `tmp_enabled: false`. Outra otimização deliberada exige um ID novo, análise positiva, verificação anterior concluída e intervalo mínimo de 10 minutos desde a última tentativa de aplicação. Não alterar o ID para tratar um resultado incerto.
 
 ## Relatórios de aplicação
 
@@ -236,7 +236,7 @@ Atualize o app existente pela loja, preserve IP, conta proprietária, senha e `x
 
 O controle passa pela sessão TPAP/TLS com certificado fixado, prova de senha mútua e leitura atual de modelo/firmware/modo. A escrita parcial modifica somente o estado de visitantes nas duas bandas, preservando o isolamento lido. Nome, senha, segurança, VLAN e duração não entram no comando. Compara a configuração antes/depois em memória e exige duas leituras no estado solicitado. O firmware pode renovar prazo de rede temporária ao ligar. Nenhuma configuração privada é publicada em MQTT ou relatórios.
 
-Intervalo guest de 60 segundos, sem fila automática de repetições, sem replay após falha ou reinício. A aplicação anterior de canais deve estar verificada e fora do intervalo X50 de 30 minutos. Ações são serializadas; a leitura periódica não inicia ACS ou escrita. Estado de visitantes é do principal, sem comprovar emissão ou conectividade por cada satélite.
+Intervalo guest de 60 segundos, sem fila automática de repetições, sem replay após falha ou reinício. A aplicação anterior de canais deve estar verificada. Uma aplicação estável não impõe espera adicional de otimização aos visitantes. O minuto de visitantes é reservado na aceitação e renovado antes da escrita. Ações são serializadas; a leitura periódica não inicia ACS ou escrita. Estado de visitantes é do principal, sem comprovar emissão ou conectividade por cada satélite.
 
 Para validar, desative temporariamente automações que comandem o EZmart e confirme o estado inicial no app Deco. Solicite uma única mudança pelo interruptor, aguarde `guest_enabled_verified` ou `guest_disabled_verified` no log/atributo `result`, e confira no app Deco. Depois de pelo menos 60 segundos após a conclusão, teste a operação inversa. Se houver incerteza ou falha, compartilhe somente o relatório filtrado; não repita comandos sem diagnóstico. Relatório em `/data/guest_wifi_report.json`, dentro do app. Também confira conexão de um dispositivo visitante por um secundário antes de considerar propagação validada.
 

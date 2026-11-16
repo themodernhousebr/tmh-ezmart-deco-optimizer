@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0-dev.9
+
+- Otimização M9/X50: padrão e mínimo de 10 minutos entre pedidos/aplicações. Intervalos maiores explicitamente configurados continuam respeitados; pausas de pedidos concluídos com relatório correspondente são recalculadas pelo novo intervalo, sem apagar históricos ou liberar resultados incertos.
+- Visitantes mantém 60 segundos, reservados na aceitação e renovados antes da escrita. Não herda intervalo de aplicação estável de canais; operações em andamento ou sem verificação continuam bloqueadas. Proteção de autenticação inalterada.
+
 ## 0.11.0-dev.8
 
 - Piloto X50 principal hardware 1.0, firmware exato 1.11.1 Build 26081714 Rel. 32981, Router: otimização sob demanda e visitantes. Monitoramento já observado; confirmação física das ações pendente.

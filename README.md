@@ -2,7 +2,7 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.11.0-dev.8 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
+**0.11.0-dev.9 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
@@ -46,9 +46,9 @@ A 0.9 reúne os dois transportes, sensores, aplicação e recuperação. As opç
 
 IDs manuais, tempos, diagnóstico e MQTT alternativo são opções avançadas, sem valores obrigatórios em uma instalação nova. O Supervisor preserva valores já salvos numa atualização, portanto eles podem continuar aparecendo no formulário antigo. Não é necessário removê-los nem reconfigurar o M9. Veja a configuração por modelo em [DOCS.md](ezmart_deco_optimizer/DOCS.md).
 
-X50 monitora a cada no mínimo 60 segundos, sem ACS periódico. Cada pedido explícito exige recomendação positiva e reserva persistente; há mínimo de 30 minutos entre pedidos/aplicações. A verificação usa apenas leituras autenticadas. Os sensores numéricos são nomeados **Canal backhaul**; CPU, memória e terceira banda não disponíveis permanecem desconhecidos. Nenhum comando parte da inicialização, mesmo sem MQTT.
+X50 monitora a cada no mínimo 60 segundos, sem ACS periódico. Cada pedido explícito exige recomendação positiva e reserva persistente; há mínimo de 10 minutos entre pedidos/aplicações. A verificação usa apenas leituras autenticadas. Os sensores numéricos são nomeados **Canal backhaul**; CPU, memória e terceira banda não disponíveis permanecem desconhecidos. Nenhum comando parte da inicialização, mesmo sem MQTT.
 
-O journal do diagnóstico em `/config` não é importado automaticamente pelo app em `/data`. Preserve-o, não execute os dois ao mesmo tempo e aguarde ao menos 30 minutos desde a última aplicação do diagnóstico antes do primeiro pedido pelo app. Uma aplicação do diagnóstico ainda incerta deve ser resolvida pelo próprio diagnóstico antes de habilitar pedidos no app. Não apague históricos para liberar tentativas.
+O journal do diagnóstico em `/config` não é importado automaticamente pelo app em `/data`. Preserve-o, não execute os dois ao mesmo tempo e aguarde ao menos 10 minutos desde a última aplicação do diagnóstico antes do primeiro pedido pelo app. Uma aplicação do diagnóstico ainda incerta deve ser resolvida pelo próprio diagnóstico antes de habilitar pedidos no app. Não apague históricos para liberar tentativas.
 
 ### Diagnóstico X50 sem rebuild
 
@@ -131,7 +131,7 @@ python3 /tmp/x50_tls_probe.py 192.168.68.1 \
 
 **Pode haver interrupção temporária do Wi-Fi.** As credenciais são digitadas com entrada oculta e não vão para os arquivos. A análise espera até 120 segundos e a resposta de aplicação até 60; ambos têm uma única tentativa. Depois, o diagnóstico espera 30 segundos e procura três leituras consecutivas iguais, com intervalos de dez segundos, no máximo seis observações dentro de uma janela de 120 segundos. Cada observação abre uma sessão autenticada nova, exclusivamente para leituras, mantendo o certificado fixado. Falhas transitórias reiniciam a contagem de estabilidade; rejeição de autenticação, identidade divergente ou protocolo inválido interrompem a verificação. Com esses prazos, reserve até aproximadamente oito minutos para o conjunto.
 
-O registro `/config/ezmart_x50_apply_journal.json` e seu arquivo `.lock` impedem concorrência e repetição acidental. A tentativa é gravada e sincronizada antes do envio; `apply_command_attempted` é conservador, podendo ficar verdadeiro mesmo que um envio interrompido não tenha chegado ao equipamento. Repetir o mesmo ID retorna `already_requested`, sem conexão. Outro ID também é bloqueado enquanto houver aplicação anterior sem aceite e verificação estável; após ambos, há intervalo mínimo de 1800 segundos. Preserve esse registro: apagá-lo, mudar seu caminho ou usar outra instalação elimina essa proteção local. O JSON de resultado compartilhável é um arquivo separado.
+O registro `/config/ezmart_x50_apply_journal.json` e seu arquivo `.lock` impedem concorrência e repetição acidental. A tentativa é gravada e sincronizada antes do envio; `apply_command_attempted` é conservador, podendo ficar verdadeiro mesmo que um envio interrompido não tenha chegado ao equipamento. Repetir o mesmo ID retorna `already_requested`, sem conexão. Outro ID também é bloqueado enquanto houver aplicação anterior sem aceite e verificação estável; após ambos, há intervalo mínimo de 600 segundos. Preserve esse registro: apagá-lo, mudar seu caminho ou usar outra instalação elimina essa proteção local. O JSON de resultado compartilhável é um arquivo separado.
 
 Se o Terminal desconectar, a saída redirecionada pode ficar incompleta; a reserva persistente continua protegendo o pedido. Após reconectar, use **somente a verificação do mesmo ID e registro**:
 

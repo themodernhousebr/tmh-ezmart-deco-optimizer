@@ -195,10 +195,24 @@ class X50AppTests(unittest.TestCase):
         self.assertEqual(control.reason(), 'tmp_auth_cooldown')
         self.assertEqual(control.reason('verify'), 'tmp_auth_cooldown')
 
-    def test_x50_request_cooldown_is_30_minutes_and_restart_never_replays(self):
+    def test_completed_request_wait_is_recalculated_from_durable_report(self):
+        report = self.record(request_id='prior')
+        run.save(self.data/'automation_state.json', {'version':1, 'next_allowed':1900,
+            'next_verify':0, 'inflight':False, 'last_request':'apply_acknowledged',
+            'last_id':'prior', 'last_action':'optimize'})
+        control = self.control()
+        self.assertEqual(control.control['next_allowed'], report['started_at'] + 600)
+        self.assertEqual(backend.protocol.action_error(
+            {'prior':{'target':backend.target_hash(self.options),'report':report}},
+            backend.target_hash(self.options), 'new', report['apply_attempted_at']+599)['state'], 'apply_cooldown')
+        self.assertIsNone(backend.protocol.action_error(
+            {'prior':{'target':backend.target_hash(self.options),'report':report}},
+            backend.target_hash(self.options), 'new', report['apply_attempted_at']+600))
+
+    def test_x50_request_cooldown_is_10_minutes_and_restart_never_replays(self):
         control = self.control()
         self.assertEqual(control.accept('optimize'), 'accepted')
-        self.assertEqual(control.control['next_allowed'], self.now+1800)
+        self.assertEqual(control.control['next_allowed'], self.now+600)
         fresh = self.control()
         self.assertEqual(fresh.control['last_request'], 'interrupted_no_replay')
         self.assertIsNone(fresh.take())

@@ -41,11 +41,9 @@ class Controller:
         self.path = data / 'automation_state.json'
         self.control = {'version': 1, 'next_allowed': 0, 'next_verify': 0,
                         'inflight': False, 'last_request': 'none', 'last_id': '', 'last_action': ''}
-        self.cooldown = options.get('request_cooldown_seconds', 900)
-        if type(self.cooldown) is not int or not 900 <= self.cooldown <= 86400:
+        self.cooldown = options.get('request_cooldown_seconds', 600)
+        if type(self.cooldown) is not int or not 600 <= self.cooldown <= 86400:
             self.fault = 'invalid_request_cooldown'
-        elif self.x50:
-            self.cooldown = max(1800, self.cooldown)
         try:
             if self.path.exists():
                 saved = json.loads(self.path.read_text())
@@ -59,6 +57,17 @@ class Controller:
                     self.control.update(inflight=False, last_request='interrupted_no_replay')
                     save(self.path, self.control)
             self.restore_report()
+            # Recalculate only a finished request tied to its durable report.
+            started = self.report.get('started_at')
+            if (self.path.exists() and not saved['inflight']
+                    and self.control['last_request'] != 'interrupted_no_replay'):
+                if (self.control['last_action'] == 'optimize' and
+                        self.report.get('request_id') == self.control['last_id'] and
+                        finite_time(started)):
+                    limit = min(self.control['next_allowed'], started + self.cooldown)
+                    if limit != self.control['next_allowed']:
+                        self.control['next_allowed'] = limit
+                        save(self.path, self.control)
         except Exception:
             self.fault = 'invalid_automation_state'
 

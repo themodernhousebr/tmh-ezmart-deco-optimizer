@@ -1095,7 +1095,7 @@ def action_error(actions, target, request_id, now, verify_only=False):
         if (prior.get("verification", {}).get("state") != "stable"
                 or prior.get("apply_ack", {}).get("state") != "accepted"):
             return {"state": "previous_apply_unverified", "previous_request_id": prior["request_id"]}
-        remaining = prior["apply_attempted_at"] + 1800 - now
+        remaining = prior["apply_attempted_at"] + 600 - now
         if remaining > 0:
             return {"state": "apply_cooldown", "remaining_seconds": math.ceil(remaining)}
     return None

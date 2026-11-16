@@ -1200,7 +1200,7 @@ class ApplyProbeTests(unittest.TestCase):
         count = len(self.sessions)
         result = self.run_action(request_id="x50-opt-002")
         self.assertEqual(result["state"], "apply_cooldown")
-        self.assertGreater(result["remaining_seconds"], 1700)
+        self.assertGreater(result["remaining_seconds"], 500)
         self.assertEqual(len(self.sessions), count)
 
     def test_ack_without_channel_change_does_not_invent_a_change(self):

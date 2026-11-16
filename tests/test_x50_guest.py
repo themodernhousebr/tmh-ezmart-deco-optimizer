@@ -224,13 +224,13 @@ class X50GuestTests(unittest.TestCase):
             callback.assert_not_called()
             self.assertEqual(peer.requests, [])
 
-    def test_previous_x50_apply_cooldown_and_uncertainty_block_guest(self):
+    def test_verified_apply_allows_guest_but_uncertainty_blocks(self):
         f = self.fx
         report = {'apply_command_attempted':True, 'apply_attempted_at':f.now - 1000,
                   'verification':{'state':'stable'}}
         journal = {'actions':{'prior':{'target_hash':guest.target_hash(f.options),'report':report}}}
         with patch.object(backend, 'load_journal', return_value=(None,journal)):
-            self.assertEqual(f.controller.accept('guest_on'), 'apply_cooldown')
+            self.assertIsNone(guest.optimization_block(f.options, f.data, f.now))
             report['verification']['state'] = 'unconfirmed'
             self.assertEqual(f.controller.accept('guest_on'), 'previous_apply_unverified')
         self.assertEqual(f.write_calls, [])
