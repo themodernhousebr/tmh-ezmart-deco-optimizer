@@ -274,3 +274,27 @@ guest_control_enabled: false
 Mantenha as opções MQTT válidas da instalação. `username` usa `admin` por padrão; não é o e-mail da conta. A senha é usada na autenticação HTTP local. Campos `tmp_email`, `tmp_password`, chave SSH e certificado X50 não são usados para esta coleta. Configure o IP realmente acessível pelo Home Assistant.
 
 Após salvar e iniciar, compartilhe `Resumo da Mesh` e o nome da instalação. Campos `hardware` e `role` aparecem quando informados e reconhecidos; MAC, nome do cliente, apelido, identificadores e respostas brutas não são publicados. `m5_readonly_pilot` significa que ações estão deliberadamente bloqueadas nesta etapa. Mesmo ativar os campos de comandos não libera otimização, controle de visitantes, ações de inicialização ou transporte TMP. A leitura independente de canais pode não ser oferecida em todas as revisões; isso não deve impedir a coleta do inventário.
+
+## M5 — piloto de ações (0.11.0-dev.12)
+
+Perfis exatos: M5 hardware **3.0 e 3.2**, firmware **1.9.5 Build 20260602 Rel. 25369**, em **AP/FAP**. Monitoramento HTTP observado; ações SSH/TMP aguardam validação física. Esta versão substitui o bloqueio geral de ações da etapa de coleta 0.11.0-dev.11 por bloqueios de perfil.
+
+Preserve IP, senha HTTP, MQTT e históricos. Mantenha `deco_model: m5` e preencha `tmp_email` e `tmp_password` com a conta proprietária desta rede. Configure:
+
+```yaml
+tmp_host_key_mode: automatic
+tmp_enabled: true
+mqtt_enabled: true
+mqtt_commands_enabled: true
+guest_control_enabled: true
+tmp_scan_backend: m9_acs
+tmp_timeout_seconds: 30
+poll_seconds: 300
+request_cooldown_seconds: 600
+```
+
+O nome histórico m9_acs identifica o fluxo compartilhado, sem mudar o modelo para M9. Certificado X50 não é usado. Somente pedidos explícitos abrem SSH/20001 e canal TMP local/20002. Automático confia no IP reservado, como no M9, sem autenticação independente da identidade SSH; pinned continua disponível. Proteção de autenticação é preservada. Não há fallback de transporte nem otimização M5 na inicialização.
+
+Antes da análise ACS, inventário e modo são lidos novamente pelo TMP. A porta de metadados só permite 0x400F e 0x40A0 e não habilita escrita. Visitantes também exige perfil e configuração completa antes de enviar somente enable/isolation. Uma análise negativa não aplica canais; uma positiva pode interromper temporariamente o Wi-Fi. Mantém reserva persistente, verificação posterior e ausência de replay.
+
+Desative automações que comandem o app durante os testes. Conclua um ciclo, teste uma mudança de visitantes e confirme no app Deco; aguarde 60 segundos após conclusão e teste a inversa. Depois solicite uma única otimização e aguarde o resultado completo. Recomendação negativa valida apenas análise; resultado incerto exige investigação/verificação, sem repetir aplicação.

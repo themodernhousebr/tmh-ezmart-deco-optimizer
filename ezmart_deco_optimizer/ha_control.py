@@ -182,14 +182,17 @@ class Controller:
         return None
 
     def reason(self, action='optimize'):
-        if self.options.get('deco_model') == 'm5':
-            return 'm5_readonly_pilot'
         if self.fault:
             return self.fault
         if not self.options.get('mqtt_commands_enabled', False) or not self.options.get('tmp_enabled', False):
             return 'commands_disabled'
         if self.busy or self.pending:
             return 'busy'
+        if self.options.get('deco_model') == 'm5':
+            if not self.reachable():
+                return 'monitor_unavailable'
+            if not self.monitor.get('profile_supported', False):
+                return 'm5_profile_not_validated'
         if self.x50 and not self.reachable():
             return 'monitor_unavailable'
         if guest_wifi.enabled(self.options) and self.clock() < self.guest.state['next_allowed']:
@@ -235,6 +238,11 @@ class Controller:
         if (not self.options.get('mqtt_enabled') or not self.options.get('mqtt_commands_enabled')
                 or not self.options.get('tmp_enabled')):
             return 'commands_disabled'
+        if self.options.get('deco_model') == 'm5':
+            if not self.reachable():
+                return 'monitor_unavailable'
+            if not self.monitor.get('profile_supported', False):
+                return 'm5_profile_not_validated'
         if self.busy or self.pending:
             return 'busy'
         try:
@@ -389,9 +397,11 @@ class Controller:
                 'channels_at': iso(channels.get('updated_at', 0)),
                 'performance_at': iso(self.monitor.get('diagnostics', {}).get('performance', {}).get('updated_at', 0)),
                 'guest_enabled': guest.get('enabled'),
-                'commands_available': (self.options.get('deco_model') != 'm5' and not self.fault and self.options.get('tmp_enabled', False)
+                'commands_available': ((self.options.get('deco_model') != 'm5' or self.monitor.get('profile_supported', False))
+                                       and not self.fault and self.options.get('tmp_enabled', False)
                                        and self.options.get('mqtt_commands_enabled', False)),
-                'guest_available': (guest_wifi.enabled(self.options) and not self.fault
+                'guest_available': ((self.options.get('deco_model') != 'm5' or self.monitor.get('profile_supported', False))
+                                    and guest_wifi.enabled(self.options) and not self.fault
                                     and self.options.get('tmp_enabled', False)
                                     and self.options.get('mqtt_commands_enabled', False)),
                 'guest_details': {'observation_fresh': self.guest_readable(), 'bands': guest.get('bands', {}), 'observed_at': iso(guest.get('updated_at', 0)),

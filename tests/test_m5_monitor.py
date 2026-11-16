@@ -1,4 +1,4 @@
-"""M5 pilot collects inventory while all action paths remain closed."""
+"""M5 pilot collects inventory and action gates for exact profiles."""
 import json
 from pathlib import Path
 import sys
@@ -22,8 +22,8 @@ class M5MonitorTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.data = Path(self.temp.name)
         self.options = dict(deco_model='m5', host='192.168.68.1', password='PRIVATE',
-                            mqtt_enabled=True, tmp_enabled=True, mqtt_commands_enabled=True,
-                            guest_control_enabled=True, tmp_scan_backend='m9_acs')
+                            mqtt_enabled=True, tmp_enabled=False, mqtt_commands_enabled=False,
+                            guest_control_enabled=False, tmp_scan_backend='m9_acs')
         self.stop = threading.Event()
 
     def client(self):
@@ -55,20 +55,19 @@ class M5MonitorTests(unittest.TestCase):
         self.assertNotIn('role', result['nodes'][0])
 
     def test_controller_and_transport_reject_actions_even_if_options_enabled(self):
-        control = ha_control.Controller(self.options, self.data, run.save)
+        options = dict(self.options, tmp_enabled=True, mqtt_commands_enabled=True, guest_control_enabled=True)
+        control = ha_control.Controller(options, self.data, run.save)
         control.set_monitor({'nodes':[], 'mode':'Router'}, True)
         for action in ('optimize', 'verify'):
-            self.assertEqual(control.accept(action), 'm5_readonly_pilot')
-        self.assertEqual(control.accept('guest_on'), 'guest_control_disabled')
+            self.assertEqual(control.accept(action), 'm5_profile_not_validated')
+        self.assertEqual(control.accept('guest_on'), 'm5_profile_not_validated')
         self.assertFalse(control.view()['commands_available'])
         self.assertFalse(control.view()['guest_available'])
         with patch.object(tmp_readonly.socket, 'create_connection') as connect:
-            for action in ('read', 'scan', 'optimize', 'verify'):
+            for action in ('read', 'scan'):
                 result = tmp_readonly.run_probe(dict(self.options, tmp_action=action), self.data, run.save)
-                self.assertEqual(result['state'], 'm5_readonly_pilot')
+                self.assertEqual(result['state'], 'm5_action_not_supported')
             connect.assert_not_called()
-        with self.assertRaises(ValueError):
-            m9_actions.settings(self.options)
         self.assertFalse(run.startup_action_enabled(dict(self.options, mqtt_enabled=False)))
 
     def test_m5_runtime_reads_http_only_and_defaults_to_five_minutes(self):

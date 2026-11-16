@@ -16,7 +16,7 @@ FIRMWARE = '1.9.1 Build 20250612 Rel. 45690'
 
 
 def enabled(options):
-    return options.get('deco_model', 'm9_plus') in ('m9_plus', 'x50') and options.get('guest_control_enabled') is True
+    return options.get('deco_model', 'm9_plus') in ('m9_plus', 'x50', 'm5') and options.get('guest_control_enabled') is True
 
 
 def target_hash(options):
@@ -114,6 +114,10 @@ def supported_profile(reader, model="m9_plus"):
         import x50_tpap
         return x50_tpap.supported_profile(master.get('device_model'), master.get('hardware_ver'),
                                           master.get('software_ver'), mode)
+    if model == 'm5':
+        import m5_profile
+        return m5_profile.supported(master.get('device_model'), master.get('hardware_ver'),
+                                    master.get('software_ver'), mode)
     return (master.get('device_model') == 'M9Plus'
             and re.fullmatch(r'2(?:\.[0-9]{1,2}){1,2}', str(master.get('hardware_ver', ''))) is not None
             and master.get('software_ver') == FIRMWARE and mode in ('AP', 'FAP'))

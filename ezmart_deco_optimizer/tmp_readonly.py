@@ -23,11 +23,12 @@ class ProtocolError(Exception):
     pass
 
 
-def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False, allow_acs_scan=False, allow_acs_apply=False, allow_guest=False):
+def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False, allow_acs_scan=False, allow_acs_apply=False, allow_guest=False, allow_profile_read=False):
     if (opcode not in (ALLOC, QUALITY) and not (allow_scan and opcode == SCAN)
             and not (allow_acs_scan and opcode == M9_ACS_SCAN)
             and not (allow_acs_apply and opcode == M9_ACS_APPLY)
-            and not (allow_guest and opcode in (0x4008, 0x4009, 0x400F, 0x40A0))):
+            and not (allow_guest and opcode in (0x4008, 0x4009, 0x400F, 0x40A0))
+            and not (allow_profile_read and opcode in (0x400F, 0x40A0))):
         raise ProtocolError()
     business = struct.pack('>BBHBBHIII', 1, 2, opcode, 4 if pull else 2,
                            0, transaction, zlib.crc32(body) if body else 0, len(body), offset) + body
@@ -42,6 +43,7 @@ class Reader:
         self.allow_acs_scan = False
         self.allow_acs_apply = False
         self.allow_guest = False
+        self.allow_profile_read = False
         self.channel = channel
         self.sequence = 0
         self.transaction = -1
@@ -67,13 +69,22 @@ class Reader:
             raise TimeoutError()
         self.channel.settimeout(remaining)
         self.channel.sendall(packet(opcode, body, self.transaction, self.sequence, offset, pull,
-                                    self.allow_scan, self.allow_acs_scan, self.allow_acs_apply, self.allow_guest))
+                                    self.allow_scan, self.allow_acs_scan, self.allow_acs_apply, self.allow_guest, self.allow_profile_read))
 
     def request(self, opcode, timeout_seconds=20):
         if opcode not in (ALLOC, QUALITY, SCAN, M9_ACS_SCAN, M9_ACS_APPLY):
             raise ProtocolError()
         params = {} if opcode in (M9_ACS_SCAN, M9_ACS_APPLY) else {'scan_type': ['network_quality']}
         return self._exchange(opcode, params, timeout_seconds)
+
+    def profile_request(self, opcode):
+        if opcode not in (0x400F, 0x40A0):
+            raise ProtocolError()
+        self.allow_profile_read = True
+        try:
+            return self._exchange(opcode, {}, 30)
+        finally:
+            self.allow_profile_read = False
 
     def guest_request(self, opcode, params=None):
         from guest_wifi import READ_OPS, WRITE_WLAN, validate_params
@@ -206,12 +217,12 @@ def scan_request(options, data):
 def run_probe(options, data, save, clock=time.time, channel_snapshot=None, should_stop=lambda: False, wait=None,
               guest_job=None, guest_control=None):
     """One connection per process. A missing pin discovers identity without auth."""
-    if options.get('deco_model') == 'm5':
-        return {'state': 'm5_readonly_pilot', 'write_attempted': False}
+    if options.get('deco_model') == 'm5' and guest_job is None and options.get('tmp_action') not in ('optimize', 'verify'):
+        return {'state': 'm5_action_not_supported', 'write_attempted': False}
     action = 'read' if guest_job is not None else options.get('tmp_action', 'read')
     if guest_job is not None:
         from guest_wifi import enabled
-        if (options.get('deco_model', 'm9_plus') != 'm9_plus'
+        if (options.get('deco_model', 'm9_plus') not in ('m9_plus', 'm5')
                 or not enabled(options) or not options.get('mqtt_enabled') or not options.get('mqtt_commands_enabled')
                 or not options.get('tmp_enabled') or guest_control is None):
             return {'state': 'guest_control_disabled'}
@@ -273,7 +284,8 @@ def run_probe(options, data, save, clock=time.time, channel_snapshot=None, shoul
         else:
             # Explicit IP-trust policy. The current SSH key secures this
             # session, but does not authenticate the remote device identity.
-            logging.getLogger('ezmart').info('M9 SSH: confiança no IP reservado; chave obtida nesta conexão.')
+            logging.getLogger('ezmart').info('%s SSH: confiança no IP reservado; chave obtida nesta conexão.',
+                                           'M5' if options.get('deco_model') == 'm5' else 'M9')
         email = options.get('tmp_email', '').strip().lower()
         password = options.get('tmp_password', '')
         if not email or not password:

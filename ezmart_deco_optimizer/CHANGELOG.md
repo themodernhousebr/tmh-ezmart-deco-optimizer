@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0-dev.12
+
+- Piloto de ações M5 3.0/3.2, firmware exato 1.9.5 Build 20260602 Rel. 25369, AP/FAP: visitantes com preservação e otimização condicional via SSH/TMP. Monitoramento HTTP preservado; confirmação física das ações pendente.
+- Perfil conferido ao vivo antes da análise ACS e da escrita de visitantes. Porta dedicada de leitura de metadados não habilita alterações. Router, outros hardwares/builds e inventário sem um único master permanecem bloqueados.
+- Mantém proteção de autenticação, intervalos de 10 minutos/um minuto, agendamento, reserva persistente e verificação. Nenhuma ação M5 na inicialização.
+
 ## 0.11.0-dev.11
 
 - Piloto M5 somente leitura HTTP, com opção de modelo própria e intervalo padrão de 300 segundos. Coleta hardware e papel dos nós quando disponíveis; esses campos também enriquecem o inventário HTTP M9 existente.

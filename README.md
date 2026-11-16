@@ -2,7 +2,7 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.11.0-dev.11 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
+**0.11.0-dev.12 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
@@ -185,3 +185,7 @@ A partir de 0.11.0-dev.2, `x50_certificate_mode: automatic` é o padrão. Deixe 
 ### M5 — coleta inicial de inventário
 
 A 0.11.0-dev.11 acrescenta `deco_model: m5` em piloto somente leitura HTTP. Coleta modelo, hardware, firmware e papel de cada nó, além das leituras independentes disponíveis. Não habilita otimização, visitantes, SSH ou TMP, mesmo quando opções de comandos foram ativadas por engano. Consulte a configuração na documentação. A homologação física e das ações depende da identificação da revisão de hardware.
+
+### M5 — piloto de ações 0.11.0-dev.12
+
+O perfil `m5` permite visitantes e otimização sob demanda somente no principal M5 hardware **3.0 ou 3.2**, firmware **1.9.5 Build 20260602 Rel. 25369**, em **AP/FAP**. Monitoramento usa HTTP; ações explícitas usam SSH/TMP, com perfil conferido ao vivo antes da alteração. Ações aguardam confirmação física. Outras revisões, builds e modo Router continuam bloqueados. Mantém os intervalos de 10 minutos para otimização e um minuto para visitantes e o agendamento do último pedido de visitantes.

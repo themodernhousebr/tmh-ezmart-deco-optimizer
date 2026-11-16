@@ -38,7 +38,7 @@ def target_hash(options):
 
 
 def settings(options):
-    if options.get('deco_model') == 'm5' or options.get('tmp_scan_backend') != 'm9_acs':
+    if options.get('tmp_scan_backend') != 'm9_acs':
         raise ValueError()
     result = {}
     for key, default, lower, upper in (
@@ -272,6 +272,12 @@ def optimize_once(reader, options, data, save, channel_snapshot, *, clock=time.t
             if error:
                 return error
             config, target, request_id, path, journal = prepared
+            if options.get('deco_model') == 'm5':
+                import m5_profile
+                if should_stop():
+                    return {'state': 'cancelled_before_scan'}
+                if not m5_profile.read_supported(reader):
+                    return {'state': 'm5_profile_not_validated', 'write_attempted': False}
             report = {'state': 'preflight_reserved', 'request_id': request_id, 'backend': 'm9_acs',
                       'started_at': int(clock()), 'apply_command_attempted': False}
             journal['actions'][request_id] = {'target_hash': target, 'report': report}
@@ -281,7 +287,8 @@ def optimize_once(reader, options, data, save, channel_snapshot, *, clock=time.t
                 report['state'] = 'cancelled_before_scan'
                 checkpoint()
                 return report
-            LOG.info('Otimização manual: análise M9 antes de decidir se há canais a aplicar.')
+            LOG.info('Otimização manual: análise %s antes de decidir se há canais a aplicar.',
+                     'M5' if options.get('deco_model') == 'm5' else 'M9')
             started = monotonic()
             try:
                 reader.allow_acs_scan = True

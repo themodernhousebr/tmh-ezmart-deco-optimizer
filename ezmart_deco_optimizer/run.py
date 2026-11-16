@@ -10,7 +10,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.11'
+VERSION = '0.11.0-dev.12'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -71,7 +71,7 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
         LOG.info('Ciclo %s: leitura X50 de modo, inventário e backhaul; sem análise ACS.', cycle)
         return client.collect(cycle, VERSION)
     status = {'updated_at': int(time.time()), 'available': True, 'cycle': cycle, 'version': VERSION}
-    status['read_only'] = options.get('deco_model') == 'm5' or not (options.get('tmp_enabled', False) and
+    status['read_only'] = not (options.get('tmp_enabled', False) and
                                ((options.get('mqtt_enabled', False) and options.get('mqtt_commands_enabled', False)) or
                                 (not options.get('mqtt_enabled', False) and options.get('tmp_action') in ('scan', 'optimize'))))
     LOG.info('Ciclo %s iniciado.', cycle)
@@ -139,8 +139,10 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
     status['diagnostics'] = dict(probe_results)
     status['unsupported'] = sorted(disabled)
     if options.get('deco_model') == 'm5':
-        status['profile_supported'] = False
-        status['unsupported'] = sorted(set(status['unsupported']) | {'optimization', 'guest_control'})
+        import m5_profile
+        status['profile_supported'] = m5_profile.supported_snapshot(status)
+        if not status['profile_supported']:
+            status['unsupported'] = sorted(set(status['unsupported']) | {'optimization', 'guest_control'})
     status['available'] = 'nodes' in status and 'mode' in status
     return status
 
