@@ -53,6 +53,27 @@ class MeshTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(first))
         self.assertNotIn('AA:BB', json.dumps(first))
 
+    def test_preset_locations_localized_but_custom_names_preserved_verbatim(self):
+        for source, expected in [('Kitchen', 'Cozinha'), ('kitchen', 'Cozinha'),
+                                  ('Office', 'Escritório'), ('office', 'Escritório'),
+                                  ('Living Room', 'Sala de estar'), ('living_room', 'Sala de estar')]:
+            raw = devices()[0]
+            raw.update(nickname=source, custom_nickname='')
+            translated = mesh.project([raw])[0]
+            self.assertEqual(translated['name'], expected)
+            self.assertEqual(translated['name_source'], 'preset')
+            previous_id = translated['id']
+            # Even an English word that is also a preset is literal when custom.
+            raw.update(nickname='custom', custom_nickname=base64.b64encode(source.encode()).decode())
+            custom = mesh.project([raw])[0]
+            self.assertEqual(custom['name'], source)
+            self.assertEqual(custom['name_source'], 'custom')
+            self.assertEqual(custom['id'], previous_id)
+        raw.update(nickname='Sacada', custom_nickname='')
+        self.assertEqual(mesh.project([raw])[0]['name'], 'Sacada')
+        raw.update(nickname='Sala técnica – térreo', custom_nickname='')
+        self.assertEqual(mesh.project([raw])[0]['name'], 'Sala técnica – térreo')
+
     def test_unknown_is_not_connected_and_no_id_is_not_discovered(self):
         raw = devices()
         raw[0].pop('group_status')

@@ -1,4 +1,4 @@
-# EZmart Deco Optimizer — 0.12.0-dev.1
+# EZmart Deco Optimizer — 0.12.0-dev.2
 
 Monitoramento local e otimização sob demanda para M9 Plus V2 em AP, X50 1.30/1.8.4 e 1.0/1.11.1 em Router, e M5 3.0/3.2 com firmware 1.9.5 em Router/AP, respeitando os perfis exatos descritos abaixo. A 0.12 acrescenta desempenho do principal e descoberta dos nós com conectividade da malha e teste IP independente; essas novas leituras aguardam validação em equipamento. A aplicação positiva M5 3.0 ainda não foi observada; a análise respondeu sem necessidade de otimizar.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.0-dev.1` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.0-dev.2` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 
@@ -332,3 +332,5 @@ O teste IP usa duas sondas por endereço, no máximo quatro nós simultâneos, e
 Cadastros persistem em `/data/mesh_nodes.json`; desaparecimento da resposta não exclui automaticamente um dispositivo ou o marca como desconectado. Estado ausente/antigo fica desconhecido; parada do app ou expiração das mensagens pode deixar a entidade indisponível. Os estados de conectividade individuais não são retidos no broker para evitar restaurar ON antigo após reinício. Os testes ICMP continuam independentes quando uma consulta de administração falha.
 
 Validação inicial: confira nomes e IPs, renomeie um nó no app Deco e confirme que o dispositivo muda de nome mantendo entity_id. Compare o estado informado pela malha com Resposta IP. Valide um satélite desligado em uma janela apropriada antes de substituir as automações de monitoramento existentes. CPU/memória dos satélites individualmente não estão incluídas nesta versão.
+
+Na 0.12.0-dev.2, nomes padrão de localização do Deco são traduzidos para português (Kitchen → Cozinha, Office → Escritório, Living Room → Sala de estar). O nome personalizado tem prioridade e não é traduzido. O atributo `name_source` indica `custom`, `preset`, `reported` ou `fallback`. Não se consulta a área do Home Assistant para nomear dispositivos.

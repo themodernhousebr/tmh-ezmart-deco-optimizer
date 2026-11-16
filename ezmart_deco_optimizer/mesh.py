@@ -5,6 +5,32 @@ import ipaddress
 import re
 
 
+# Built-in location identifiers returned by Deco firmware, localized by its app.
+PRESET_NAMES = {
+    'bedroom': 'Quarto', 'hallway': 'Corredor', 'kitchen': 'Cozinha',
+    'living room': 'Sala de estar', 'master bedroom': 'Quarto principal',
+    'main bedroom': 'Quarto principal', 'office': 'Escritório',
+    'study': 'Sala de estudos', 'garden': 'Jardim', 'garage': 'Garagem',
+    'front door': 'Entrada', 'back yard': 'Quintal',
+}
+
+
+def device_name(raw, fallback):
+    """Custom labels win verbatim; translate only recognized built-in presets."""
+    custom = raw.get('custom_nickname')
+    try:
+        custom = base64.b64decode(custom, validate=True).decode('utf-8') if isinstance(custom, str) and len(custom) <= 512 else None
+    except (ValueError, UnicodeError):
+        custom = None
+    if text(custom):
+        return text(custom), 'custom'
+    reported = text(raw.get('nickname'))
+    if reported:
+        preset = PRESET_NAMES.get(reported.casefold().replace('_', ' '))
+        return (preset, 'preset') if preset else (reported, 'reported')
+    return fallback, 'fallback'
+
+
 def text(value):
     return value.strip() if isinstance(value, str) and 0 < len(value.strip()) <= 128 and all(ord(c) >= 32 for c in value) else None
 
@@ -51,12 +77,7 @@ def project(devices):
             value = text(raw.get(source))
             if value:
                 node[target] = value
-        custom = raw.get('custom_nickname')
-        try:
-            custom = base64.b64decode(custom, validate=True).decode('utf-8') if isinstance(custom, str) and len(custom) <= 512 else None
-        except (ValueError, UnicodeError):
-            custom = None
-        node['name'] = text(custom) or text(raw.get('nickname')) or 'Deco ' + key[-6:]
+        node['name'], node['name_source'] = device_name(raw, 'Deco ' + key[-6:])
         if raw.get('role') in ('master', 'slave'):
             node['role'] = raw['role']
         try:

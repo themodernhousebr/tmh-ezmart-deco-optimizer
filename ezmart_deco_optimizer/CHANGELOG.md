@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.0-dev.2
+
+- Traduz para português os nomes padrão de localização retornados pelo firmware, como Kitchen/Cozinha, Office/Escritório e Living Room/Sala de estar.
+- Nomes personalizados mantêm prioridade e conteúdo literal, inclusive quando coincidem com uma palavra de localização em inglês. Nenhuma consulta a áreas do Home Assistant é feita.
+- Identidade, entity_id, tópicos MQTT e ações existentes preservados; o nome do dispositivo será atualizado na próxima consulta. Atributo name_source identifica nome personalizado, padrão ou reportado.
+
 ## 0.12.0-dev.1
 
 - CPU/memória do principal por leitura HTTP no M5 e device_resource/read no X50. Opção monitor_performance ativa por padrão; falha da leitura opcional não invalida inventário reconhecido no X50.
