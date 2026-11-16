@@ -235,13 +235,19 @@ class X50GuestTests(unittest.TestCase):
             self.assertEqual(f.controller.accept('guest_on'), 'previous_apply_unverified')
         self.assertEqual(f.write_calls, [])
 
+    def test_x50_scheduled_latest_intent_executes_once_after_cooldown(self):
+        self.fx.test_cooldown_schedules_only_latest_intent_then_consumes_once()
+
+    def test_x50_unsent_schedule_survives_restart(self):
+        self.fx.test_unsent_schedule_survives_restart_and_keeps_target()
+
     def test_restart_never_replays_guest(self):
         f = self.fx
         self.assertEqual(f.controller.accept('guest_on'), 'accepted')
         restarted = Controller(f.options, f.data, run.save, clock=lambda:f.now)
         self.assertIsNone(restarted.take())
         self.assertEqual(restarted.guest.state['result'], 'interrupted_no_replay')
-        self.assertEqual(restarted.accept('guest_on'), 'guest_cooldown')
+        self.assertEqual(restarted.accept('guest_on'), 'scheduled')
 
     def test_shared_lock_blocks_x50_optimization_while_guest_is_active(self):
         from m9_actions import action_lock

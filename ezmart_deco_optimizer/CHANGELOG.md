@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0-dev.10
+
+- Comandos de visitantes durante o cooldown ou outro comando de visitantes ficam agendados; apenas o último estado solicitado é mantido e executado uma vez após liberação.
+- Intenção não enviada persiste por alvo, com horário e expiração em atributos e logs. Consumo persistido antes de executar impede replay. Falha/incerteza da ação ativa, expiração, troca de alvo ou desativação cancelam o agendamento. Estado do switch continua observado.
+
 ## 0.11.0-dev.9
 
 - Otimização M9/X50: padrão e mínimo de 10 minutos entre pedidos/aplicações. Intervalos maiores explicitamente configurados continuam respeitados; pausas de pedidos concluídos com relatório correspondente são recalculadas pelo novo intervalo, sem apagar históricos ou liberar resultados incertos.

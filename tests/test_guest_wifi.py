@@ -277,7 +277,102 @@ class GuestTests(unittest.TestCase):
         self.monitor(restarted)
         self.assertIsNone(restarted.take())
         self.assertEqual(restarted.guest.state['result'], 'interrupted_no_replay')
-        self.assertEqual(restarted.accept('guest_on'), 'guest_cooldown')
+        self.assertEqual(restarted.accept('guest_on'), 'scheduled')
+
+    def test_cooldown_schedules_only_latest_intent_then_consumes_once(self):
+        self.execute('guest_on')
+        self.assertEqual(self.controller.accept('guest_off'), 'scheduled')
+        self.assertEqual(self.controller.accept('guest_on'), 'scheduled')
+        self.assertEqual(self.controller.accept('guest_off'), 'scheduled')
+        self.assertEqual(self.controller.view()['guest_details']['scheduled_action'], 'guest_off')
+        self.assertIsNone(self.controller.dispatch_scheduled_guest())
+        self.assertIsNone(self.controller.pending)
+        self.now = self.controller.guest.state['next_allowed']
+        self.assertEqual(self.controller.dispatch_scheduled_guest(), 'accepted')
+        self.assertIsNone(self.controller.scheduled_guest)
+        job = self.controller.take()
+        self.assertEqual(job['action'], 'guest_off')
+        result = guest.execute(self.reader, self.options, self.data, self.controller.guest, job,
+                               wait=self.wait, clock=lambda:self.now)
+        self.controller.finish(result)
+        self.controller.dispatch_scheduled_guest()
+        self.assertIsNone(self.controller.pending)
+        self.assertEqual(len(self.write_calls), 2)
+        self.assertFalse(result['observed']['enabled'])
+
+    def test_unsent_schedule_survives_restart_and_keeps_target(self):
+        self.execute('guest_on')
+        self.assertEqual(self.controller.accept('guest_off'), 'scheduled')
+        restarted = self.make()
+        self.assertEqual(restarted.scheduled_guest['action'], 'guest_off')
+        self.assertIsNone(restarted.pending)
+        self.now = restarted.guest.state['next_allowed']
+        self.assertEqual(restarted.dispatch_scheduled_guest(), 'accepted')
+        self.assertEqual(restarted.pending['action'], 'guest_off')
+        self.assertIsNone(json.loads((self.data/'guest_wifi_queue.json').read_text())['request'])
+
+    def test_restart_after_dispatch_does_not_resume_or_replay_schedule(self):
+        self.execute('guest_on')
+        self.controller.accept('guest_off')
+        self.now = self.controller.guest.state['next_allowed']
+        self.controller.dispatch_scheduled_guest()
+        restarted = self.make()
+        self.assertIsNone(restarted.scheduled_guest)
+        self.assertIsNone(restarted.pending)
+        self.assertEqual(restarted.guest.state['result'], 'interrupted_no_replay')
+
+    def test_schedule_cancelled_when_expired_disabled_or_target_changed(self):
+        self.execute('guest_on')
+        self.controller.accept('guest_off')
+        self.now = self.controller.scheduled_guest['expires_at'] + 1
+        self.controller.dispatch_scheduled_guest()
+        self.assertIsNone(self.controller.scheduled_guest)
+        self.assertIsNone(self.controller.pending)
+        self.controller.guest.state['next_allowed'] = self.now + 60
+        self.controller.accept('guest_off')
+        self.options['guest_control_enabled'] = False
+        self.controller.dispatch_scheduled_guest()
+        self.assertIsNone(self.controller.scheduled_guest)
+        self.options['guest_control_enabled'] = True
+        self.controller.accept('guest_off')
+        changed = self.make(dict(self.options, host='192.168.68.99'))
+        self.assertIsNone(changed.scheduled_guest)
+        self.assertIsNone(changed.pending)
+
+    def test_storage_failure_cannot_dispatch_scheduled_write(self):
+        self.execute('guest_on')
+        self.controller.accept('guest_off')
+        self.now = self.controller.guest.state['next_allowed']
+        self.controller.save = Mock(side_effect=OSError('PRIVATE'))
+        self.controller.dispatch_scheduled_guest()
+        self.assertEqual(self.controller.fault, 'guest_queue_storage_error')
+        self.assertIsNone(self.controller.pending)
+        self.assertEqual(len(self.write_calls), 1)
+
+    def test_request_during_running_guest_waits_for_reserved_write_cooldown(self):
+        self.controller.accept('guest_on')
+        job = self.controller.take()
+        self.assertEqual(self.controller.accept('guest_off'), 'scheduled')
+        self.now += 20
+        result = guest.execute(self.reader, self.options, self.data, self.controller.guest, job,
+                               wait=self.wait, clock=lambda:self.now)
+        self.controller.finish(result)
+        self.controller.dispatch_scheduled_guest()
+        self.assertIsNone(self.controller.pending)
+        self.now = self.controller.guest.state['next_allowed']
+        self.assertEqual(self.controller.dispatch_scheduled_guest(), 'accepted')
+        self.assertEqual(self.controller.pending['action'], 'guest_off')
+
+    def test_failed_active_guest_cancels_scheduled_intent_without_retry(self):
+        self.controller.accept('guest_on')
+        self.controller.take()
+        self.assertEqual(self.controller.accept('guest_off'), 'scheduled')
+        self.controller.finish({'state':'guest_outcome_uncertain', 'write_attempted':True})
+        self.assertIsNone(self.controller.scheduled_guest)
+        self.now += 100
+        self.controller.dispatch_scheduled_guest()
+        self.assertIsNone(self.controller.pending)
+        self.assertEqual(self.write_calls, [])
 
     def test_same_job_cannot_dispatch_a_second_write(self):
         self.execute()
@@ -311,7 +406,7 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(self.controller.accept('guest_on'), 'tmp_auth_cooldown')
         run.save(self.data/'tmp_state.json', {'next_login': 0})
         self.assertEqual(self.controller.accept('guest_on'), 'accepted')
-        self.assertEqual(self.controller.accept('guest_off'), 'busy')
+        self.assertEqual(self.controller.accept('guest_off'), 'scheduled')
         self.assertEqual(self.controller.accept('optimize'), 'busy')
         self.now += 61
         self.monitor()

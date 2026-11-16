@@ -1,4 +1,4 @@
-"""Event-driven action admission. A restart never resumes a write or a queue."""
+"""Event-driven action admission. Attempted writes never resume; only explicitly scheduled, unsent guest intent can survive restart."""
 from datetime import datetime, timezone
 import json
 import logging
@@ -28,6 +28,8 @@ class Controller:
         self.lock = threading.RLock()
         self.wake = threading.Event()
         self.pending = None
+        self.scheduled_guest = None
+        self.guest_queue_path = data / 'guest_wifi_queue.json'
         self.busy = False
         self.phase = 'idle'
         self.monitor = {}
@@ -70,6 +72,74 @@ class Controller:
                         save(self.path, self.control)
         except Exception:
             self.fault = 'invalid_automation_state'
+        self.load_guest_queue()
+
+    def save_guest_queue(self, request):
+        self.save(self.guest_queue_path, {'version': 1, 'request': request})
+        self.scheduled_guest = request
+
+    def load_guest_queue(self):
+        try:
+            if not self.guest_queue_path.exists():
+                return
+            document = json.loads(self.guest_queue_path.read_text())
+            if document.get('version') != 1:
+                raise ValueError()
+            request = document.get('request')
+            if request is None:
+                return
+            if (not isinstance(request, dict) or request.get('action') not in ('guest_on', 'guest_off')
+                    or not all(finite_time(request.get(k)) for k in ('requested_at', 'not_before', 'expires_at'))
+                    or request['requested_at'] > request['not_before']
+                    or not 0 < request['expires_at'] - request['not_before'] <= 300):
+                raise ValueError()
+            if (request.get('target_hash') != guest_wifi.target_hash(self.options)
+                    or self.clock() > request['expires_at']
+                    or self.guest.state.get('result') == 'interrupted_no_replay'):
+                self.save_guest_queue(None)
+                return
+            self.scheduled_guest = request
+        except Exception:
+            self.fault = 'guest_queue_storage_error'
+
+    def schedule_guest(self, action):
+        due = max(self.clock(), self.guest.state['next_allowed'])
+        request = {'action': action, 'requested_at': self.clock(), 'not_before': due,
+                   'expires_at': due + 300, 'target_hash': guest_wifi.target_hash(self.options)}
+        try:
+            self.save_guest_queue(request)
+        except Exception:
+            self.fault = 'guest_queue_storage_error'
+            return self.fault
+        self.wake.set()
+        LOG.info('Pedido de visitantes agendado: %s; execução permitida após %s. Apenas o último pedido será mantido.', action, iso(due))
+        return 'scheduled'
+
+    def dispatch_scheduled_guest(self):
+        with self.lock:
+            request = self.scheduled_guest
+            if request is None:
+                return
+            reason = self.guest_reason()
+            temporary = reason in ('busy', 'guest_cooldown', 'tmp_auth_cooldown')
+            expired = self.clock() > request['expires_at']
+            if expired or (reason != 'ready' and not temporary):
+                try:
+                    self.save_guest_queue(None)
+                except Exception:
+                    self.fault = 'guest_queue_storage_error'
+                LOG.info('Pedido agendado de visitantes cancelado: %s.', 'expired' if expired else reason)
+                return
+            if temporary or self.clock() < request['not_before']:
+                return
+            try:
+                # Consume durably BEFORE reserving/executing; a crash cannot replay this intent.
+                self.save_guest_queue(None)
+            except Exception:
+                self.fault = 'guest_queue_storage_error'
+                return
+            LOG.info('Executando pedido agendado de visitantes: %s.', request['action'])
+            return self.accept_guest(request['action'])
 
     def restore_report(self):
         """Only reports tied to this configured Deco may be published or verified."""
@@ -174,11 +244,16 @@ class Controller:
 
     def accept_guest(self, action):
         reason = self.guest_reason()
+        active_guest = self.active_job or self.pending or {}
+        if reason == 'guest_cooldown' or (reason == 'busy' and active_guest.get('action', '').startswith('guest_')):
+            return self.schedule_guest(action)
         if reason != 'ready':
             LOG.info('Pedido de visitantes não executado: %s.', reason)
             return reason
         request_id = 'guest-' + uuid.uuid4().hex
         try:
+            if self.scheduled_guest is not None:
+                self.save_guest_queue(None)
             self.guest.reserve(request_id)
         except Exception:
             self.fault = 'guest_storage_error'
@@ -245,6 +320,11 @@ class Controller:
                     self.guest_observed = result['observed']
                 try:
                     self.guest.finish(result)
+                    if (self.scheduled_guest is not None and result.get('state') not in
+                            ('guest_enabled_verified', 'guest_disabled_verified', 'guest_already_set',
+                             'guest_state_confirmed_without_ack')):
+                        self.save_guest_queue(None)
+                        LOG.info('Pedido agendado de visitantes cancelado após falha ou resultado incerto; nenhum reenvio automático.')
                 except Exception:
                     self.fault = 'guest_storage_error'
                 return
@@ -314,7 +394,10 @@ class Controller:
                                   'result': self.guest.state['result'], 'blocked_reason': guest_reason,
                                   'verification_scope': 'main_deco', 'request_id': self.guest.state['request_id'],
                                   'write_attempted': self.guest.state['write_attempted'],
-                                  'next_allowed_at': iso(self.guest.state['next_allowed'])},
+                                  'next_allowed_at': iso(self.guest.state['next_allowed']),
+                                  'scheduled_action': self.scheduled_guest.get('action') if self.scheduled_guest else None,
+                                  'scheduled_for': iso(max(self.scheduled_guest['not_before'], self.guest.state['next_allowed'])) if self.scheduled_guest else None,
+                                  'scheduled_expires_at': iso(self.scheduled_guest['expires_at']) if self.scheduled_guest else None},
                 'details': {'request_id': r.get('request_id'), 'state': r.get('state'),
                             'last_request_id': self.control['last_id'], 'last_requested_action': self.control['last_action'],
                             'verification': verification.get('state'), 'api_code': r.get('apply_ack', {}).get('api_code'),

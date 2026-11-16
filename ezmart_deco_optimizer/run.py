@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.9'
+VERSION = '0.11.0-dev.10'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -203,6 +203,8 @@ def main():
     cooldown_logged = False
     try:
         while not STOP.is_set():
+            if controller:
+                controller.dispatch_scheduled_guest()
             if controller and controller.pending:
                 if STOP.is_set():
                     return 0
