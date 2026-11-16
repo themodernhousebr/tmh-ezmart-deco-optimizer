@@ -25,8 +25,15 @@ def finite_time(value):
 def target_hash(options):
     host = str(ipaddress.ip_address(options['host']))
     pin = options.get('tmp_host_key_sha256', '').strip().lower()
-    if not re.fullmatch(r'[0-9a-f]{64}', pin):
+    mode = options.get('tmp_host_key_mode', 'automatic')
+    if mode not in ('automatic', 'pinned'):
         raise ValueError()
+    if mode == 'automatic' and not pin:
+        pin = 'reserved-ip'
+    elif not re.fullmatch(r'[0-9a-f]{64}', pin):
+        raise ValueError()
+    # Retain legacy target identity when a configured pin exists: changing
+    # trust mode must not discard cooldowns or replay persisted requests.
     return hashlib.sha256((host + '|' + pin).encode()).hexdigest()
 
 

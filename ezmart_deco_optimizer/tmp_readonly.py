@@ -259,10 +259,18 @@ def run_probe(options, data, save, clock=time.time, channel_snapshot=None, shoul
             return {'state': 'handshake_failed'}
         fingerprint = hashlib.sha256(transport.get_remote_server_key().asbytes()).hexdigest()
         pin = options.get('tmp_host_key_sha256', '').strip().lower()
-        if not pin:
-            return {'state': 'host_key_required', 'host_key_sha256': fingerprint}
-        if not re.fullmatch('[0-9a-f]{64}', pin) or not hmac.compare_digest(pin, fingerprint):
-            return {'state': 'host_key_mismatch'}
+        mode = options.get('tmp_host_key_mode', 'automatic')
+        if mode not in ('automatic', 'pinned'):
+            return {'state': 'invalid_host_key_mode'}
+        if mode == 'pinned':
+            if not pin:
+                return {'state': 'host_key_required', 'host_key_sha256': fingerprint}
+            if not re.fullmatch('[0-9a-f]{64}', pin) or not hmac.compare_digest(pin, fingerprint):
+                return {'state': 'host_key_mismatch'}
+        else:
+            # Explicit IP-trust policy. The current SSH key secures this
+            # session, but does not authenticate the remote device identity.
+            logging.getLogger('ezmart').info('M9 SSH: confiança no IP reservado; chave obtida nesta conexão.')
         email = options.get('tmp_email', '').strip().lower()
         password = options.get('tmp_password', '')
         if not email or not password:

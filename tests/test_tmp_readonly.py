@@ -61,7 +61,7 @@ class TmpTests(unittest.TestCase):
             def close(self): pass
         fake = SimpleNamespace(Transport=Transport)
         with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules, {'paramiko': fake}), patch.object(tmp.socket, 'create_connection', return_value=SimpleNamespace(close=lambda: None)):
-            result = tmp.run_probe({'host': '192.168.68.4', 'tmp_email': 'owner', 'tmp_password': 'secret'}, Path(directory), lambda *args: None)
+            result = tmp.run_probe({'tmp_host_key_mode': 'pinned', 'host': '192.168.68.4', 'tmp_email': 'owner', 'tmp_password': 'secret'}, Path(directory), lambda *args: None)
             self.assertEqual(result['state'], 'host_key_required')
             self.assertEqual(calls, [])
             self.assertNotIn('secret', str(result))

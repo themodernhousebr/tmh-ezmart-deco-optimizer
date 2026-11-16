@@ -12,9 +12,12 @@ configuration:
   password:
     name: M9 — HTTPS password
     description: Required for M9 monitoring. Leave empty for X50.
+  tmp_host_key_mode:
+    name: "M9 — SSH host key trust"
+    description: "Automatic (default): trusts the reserved IP and accepts the key presented on each connection. Pinned: requires the configured fingerprint. Does not affect X50 certificate verification."
   tmp_host_key_sha256:
     name: M9 — verified SSH fingerprint
-    description: Use the fingerprint previously verified for this M9. Leave empty for X50.
+    description: Required only in pinned mode. Automatic mode does not validate this fingerprint. Keep saved values to preserve journal identity. Leave empty for X50.
   x50_certificate_sha256:
     name: X50 — verified certificate fingerprint
     description: Use certificate_sha256 from this X50 diagnostic. Leave empty for M9. A mismatch blocks connection.

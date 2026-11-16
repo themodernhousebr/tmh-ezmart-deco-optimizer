@@ -217,7 +217,8 @@ class X50AppTests(unittest.TestCase):
     def test_minimal_config_and_optional_legacy_fields(self):
         config = yaml.safe_load((ROOT/'ezmart_deco_optimizer/config.yaml').read_text())
         defaults = config['options']
-        self.assertEqual(len(defaults), 10)
+        self.assertEqual(len(defaults), 11)
+        self.assertEqual(defaults["tmp_host_key_mode"], "automatic")
         self.assertFalse(defaults['mqtt_commands_enabled'])
         self.assertFalse(defaults['tmp_enabled'])
         for key in ('tmp_action', 'tmp_optimize_request_id', 'tmp_scan_request_id', 'mqtt_host', 'poll_seconds'):

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0-dev.4
+
+- M9 usa `tmp_host_key_mode: automatic` por padrão, inclusive quando a opção ainda não existe em configurações antigas. Obtém e aceita a chave SSH apresentada ao conectar, confiando no IP reservado; não autentica a identidade por fingerprint.
+- Modo `pinned` mantém comparação obrigatória com a chave configurada. Certificado X50 permanece verificado, sem alteração.
+- Não altera o fingerprint salvo nem inicia consultas periódicas de chaves. Preserva a identidade dos históricos existentes ao trocar o modo, mantendo o valor salvo. Autenticação, comandos explícitos e proteções contra reenvio permanecem.
+
 ## 0.10.0-dev.3
 
 - Falhas transitórias no inventário/modo M9 não interrompem as demais leituras do ciclo. Visitantes fica disponível somente com leitura WLAN recente, independentemente do inventário.

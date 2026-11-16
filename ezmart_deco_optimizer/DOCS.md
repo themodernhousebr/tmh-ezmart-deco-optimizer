@@ -1,4 +1,4 @@
-# EZmart Deco Optimizer — 0.10.0-dev.3
+# EZmart Deco Optimizer — 0.10.0-dev.4
 
 Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. Outros perfis X50 e M5 principal não estão validados.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.3` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.4` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 
@@ -204,3 +204,11 @@ O caminho ACS foi identificado por análise offline do firmware oficial correspo
 A 0.7 tem 50 testes locais de envio único, recusa, perda de resposta, interrupção, journal, concorrência, observação parcial, retomada e ausência de segredos nos relatórios. Em 15/11/2026, a execução no HAOS foi confirmada pelo log do piloto. A ação m9-opt-001 recebeu recomendação positiva em 26,385 segundos e aceite da aplicação (API 0) em 14,214 segundos. A banda 5_2 passou de 149 para 157; três leituras posteriores concordaram, sem falhas. As bandas 2,4 GHz e 5_1 permaneceram em 9 e 36; larguras e canais de backhaul reportados não mudaram. Conclusão: acknowledged_with_channel_change. Esta execução valida aceite e mudança observada no principal, sem comprovar ganho de velocidade/interferência ou saúde de todos os secundários. Recuperação de resposta perdida e bloqueio de repetição permanecem cobertos por simulação, sem teste físico específico.
 
 Há entidades MQTT e acionamento por automações na 0.8, descritos em AUTOMATION.md. Não há painel web próprio nem otimizações agendadas pelo app. Instalação por repositório personalizado e limites de compatibilidade estão no README do repositório. Esta distribuição usa construção local pelo Supervisor; imagens GHCR não são publicadas nesta revisão.
+
+## Confiança SSH M9 desde a 0.10.0-dev.4
+
+`tmp_host_key_mode: automatic` é o padrão, inclusive para configurações existentes sem essa opção. O app obtém a chave apresentada em cada conexão SSH e confia no endereço IP reservado. Isso permite mudança de chave sem intervenção, mas não comprova criptograficamente a identidade do equipamento remoto. Não há atualização periódica nem comando automático.
+
+Para conferir a identidade por fingerprint, selecione `tmp_host_key_mode: pinned` e preencha `tmp_host_key_sha256` com uma chave validada. Nesse modo uma divergência bloqueia a autenticação. Preserve o fingerprint antigo já salvo ao migrar para automático: ele não valida a conexão nesse modo, mas mantém a identidade dos relatórios e bloqueios existentes. Instalações novas no automático podem deixar o fingerprint vazio.
+
+Essa opção pertence somente ao M9 SSH/TMP. O certificado X50 continua fixado e validado. A mudança não executa otimização ou visitantes na inicialização com MQTT habilitado.

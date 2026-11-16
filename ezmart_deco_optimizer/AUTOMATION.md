@@ -1,4 +1,4 @@
-# Home Assistant sob demanda — 0.10.0-dev.3
+# Home Assistant sob demanda — 0.10.0-dev.4
 
 O Home Assistant solicita a otimização por um botão MQTT. Não existe agenda de análises ACS nem otimização periódica. Cada pedido aceito faz uma análise e só envia aplicação quando o Deco recomenda mudança. Reiniciar o app ou reconectar o MQTT não cria um pedido.
 
@@ -119,7 +119,7 @@ Para suspender os comandos, desabilitar `mqtt_commands_enabled` e reiniciar some
 
 ## Validar sem uma otimização desnecessária
 
-1. Conferir versão 0.10.0-dev.3, conexão MQTT e criação do dispositivo/entidades. Nenhuma ação deve iniciar apenas por isso.
+1. Conferir versão 0.10.0-dev.4, conexão MQTT e criação do dispositivo/entidades. Nenhuma ação deve iniciar apenas por isso.
 2. Como o piloto já tem m9-opt-001 aplicado, pressionar **Verificar última aplicação**. Acompanhar Em execução e Último resultado. Esse teste apenas observa canais e não chama ACS/aplicação.
 3. Conferir canais e horário de monitoramento; comparar com o relatório do app. Um resultado reconhecido da ação anterior continua com sua incerteza original, se houver.
 4. Configurar a automação escolhendo as entidades reais. Deixar a próxima necessidade real acionar Otimizar se necessário. Para um teste deliberado do botão, considerar que ele pode aplicar uma recomendação positiva e interromper temporariamente o Wi-Fi.

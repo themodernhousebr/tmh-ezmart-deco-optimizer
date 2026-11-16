@@ -91,6 +91,9 @@ configuration:
     description: Use a conta proprietária da rede que será configurada.
   tmp_password:
     name: Senha da conta proprietária Deco
+  tmp_host_key_mode:
+    name: "M9 — confiança da chave SSH"
+    description: "Automático (padrão): confia no IP reservado e aceita a chave desta conexão. Pinned: exige o fingerprint configurado. Não se aplica ao certificado X50."
   tmp_host_key_sha256:
     name: M9 — chave SSH conferida
-    description: Deixe vazio no X50. Identidade SSH do M9 previamente validada; não é senha. A conexão é bloqueada se a chave não corresponder.
+    description: Exigida apenas no modo pinned. No automático não valida a conexão. Preserve valores já salvos para manter a identidade do histórico. Deixe vazio no X50.
