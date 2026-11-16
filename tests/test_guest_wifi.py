@@ -1,5 +1,6 @@
 """Guest pilot contract: actual payloads, admission, readback and failure recovery."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -22,7 +23,7 @@ import tmp_readonly as tmp
 def wlan(on=False):
     return {band: {'host': {'ssid': 'PRIVATE_MAIN', 'password': 'PRIVATE_PASSWORD', 'enable': True},
                    'guest': {'enable': on, 'ssid': 'PRIVATE_GUEST', 'password': 'PRIVATE_PASSWORD',
-                             'host_isolation': False, 'encryption': True, 'access_duration': 0},
+                             'host_isolation': False, 'encryption_mode': 'wpa2', 'access_duration': '-1'},
                    'backhaul': {'channel': 9}} for band in guest.BANDS}
 
 
@@ -41,6 +42,8 @@ class GuestTests(unittest.TestCase):
         self.profile = {'device_list': [{'device_model': 'M9Plus', 'hardware_ver': '2.0',
                                        'software_ver': guest.FIRMWARE, 'role': 'master'}]}
         self.mode = {'mode': 'FAP'}
+        self.snapshot = lambda: copy.deepcopy(self.raw)
+        self.read_calls = []
         self.write_calls = []
         self.change = True
         self.lost_ack = False
@@ -59,7 +62,10 @@ class GuestTests(unittest.TestCase):
 
     def request(self, op, params=None):
         if op in guest.READ_OPS:
-            return json.dumps({'error_code': 0, 'result': self.profile if op == guest.READ_DEVICES else self.mode})
+            self.assertIsNone(params)
+            self.read_calls.append(op)
+            result = self.snapshot() if op == guest.READ_WLAN else self.profile if op == guest.READ_DEVICES else self.mode
+            return json.dumps({'error_code': 0, 'result': result})
         self.assertEqual(op, guest.WRITE_WLAN)
         self.assertTrue(json.loads((self.data/'guest_wifi_state.json').read_text())['write_attempted'])
         self.write_calls.append(copy.deepcopy(params))
@@ -71,10 +77,12 @@ class GuestTests(unittest.TestCase):
         return json.dumps({'error_code': 0})
 
     def execute(self, action='guest_on', snapshot=None):
+        if snapshot is not None:
+            self.snapshot = snapshot
         self.assertEqual(self.controller.accept(action), 'accepted')
         self.job = self.controller.take()
         result = guest.execute(self.reader, self.options, self.data, self.controller.guest, self.job,
-                               snapshot or (lambda: copy.deepcopy(self.raw)), wait=self.wait, clock=lambda: self.now)
+                               wait=self.wait, clock=lambda: self.now)
         self.controller.finish(result)
         return result
 
@@ -105,6 +113,71 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(result['state'], 'guest_outcome_uncertain')
         self.assertFalse(self.controller.view()['guest_enabled'])
         self.assertEqual(len(self.write_calls), 1)
+
+    def test_guest_session_uses_full_tmp_configuration_not_incomplete_https_view(self):
+        # The M9 web view reports enable/credentials but omits isolation. It is
+        # sufficient for monitoring, not for constructing a preserving write.
+        web_view = wlan()
+        for band in guest.BANDS:
+            web_view[band]['guest'].pop('host_isolation')
+        self.monitor(raw=web_view)
+        self.assertEqual(guest.project(web_view)['state'], 'available')
+        with self.assertRaises(ValueError):
+            guest.write_params(web_view, True)
+        self.options.update(tmp_host_key_sha256=hashlib.sha256(b'public-key').hexdigest(),
+                            tmp_email='owner@example.com', tmp_password='PRIVATE_PASSWORD')
+        self.assertEqual(self.controller.accept('guest_on'), 'accepted')
+        job = self.controller.take()
+        transport = Mock()
+        transport.is_active.return_value = True
+        transport.is_authenticated.return_value = True
+        transport.get_remote_server_key.return_value.asbytes.return_value = b'public-key'
+        self.reader.request = Mock(return_value=b'a'*32)
+        https_snapshot = Mock(return_value=web_view)
+        with patch.dict(sys.modules, {'paramiko': SimpleNamespace(Transport=Mock(return_value=transport))}), \
+                patch.object(tmp.socket, 'create_connection', return_value=Mock()), \
+                patch.object(tmp, 'Reader', return_value=self.reader):
+            result = tmp.run_probe(self.options, self.data, run.save, clock=lambda: self.now,
+                                   channel_snapshot=https_snapshot, guest_job=job,
+                                   guest_control=self.controller.guest, wait=self.wait)
+        self.controller.finish(result)
+        self.assertEqual(result['state'], 'guest_enabled_verified')
+        self.assertEqual(self.read_calls, [guest.READ_DEVICES, guest.READ_MODE,
+                                          guest.READ_WLAN, guest.READ_WLAN, guest.READ_WLAN])
+        self.assertEqual(len(self.write_calls), 1)
+        self.assertFalse(self.reader.allow_guest)
+        self.reader.request.assert_called_once_with(tmp.ALLOC)
+        https_snapshot.assert_not_called()
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        self.assertNotIn('PRIVATE', (self.data/'guest_wifi_state.json').read_text())
+
+    def test_tmp_configuration_read_failure_does_not_send_or_expose_secrets(self):
+        result = self.execute(snapshot=Mock(side_effect=TimeoutError('PRIVATE_PASSWORD')))
+        self.assertEqual(result['state'], 'guest_configuration_unavailable')
+        self.assertEqual(result['stage'], 'configuration_read')
+        self.assertFalse(result['write_attempted'])
+        self.assertEqual(self.write_calls, [])
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_incomplete_tmp_configuration_still_blocks_write(self):
+        self.raw['band5_1']['guest'].pop('host_isolation')
+        result = self.execute()
+        self.assertEqual(result['state'], 'guest_configuration_unavailable')
+        self.assertEqual(result['stage'], 'configuration_validation')
+        self.assertFalse(result['write_attempted'])
+        self.assertEqual(self.write_calls, [])
+
+    def test_failed_tmp_readbacks_never_confirm_or_resend(self):
+        def snapshot():
+            if self.write_calls:
+                raise TimeoutError('PRIVATE_PASSWORD')
+            return copy.deepcopy(self.raw)
+        result = self.execute(snapshot=snapshot)
+        self.assertEqual(result['state'], 'guest_outcome_uncertain')
+        self.assertEqual(len(self.write_calls), 1)
+        self.assertEqual(self.read_calls.count(guest.READ_WLAN), 13)
+        self.assertFalse(result['observed']['enabled'])
+        self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_existing_desired_state_skips_write(self):
         self.raw = wlan(True)
@@ -161,10 +234,11 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(self.write_calls, [])
         self.now += 61
         self.monitor()
+        self.snapshot = lambda: copy.deepcopy(self.raw)
         self.controller.accept('guest_on')
         job = self.controller.take()
         result = guest.execute(self.reader, self.options, self.data, self.controller.guest, job,
-                               lambda: self.raw, should_stop=lambda: True, wait=self.wait)
+                               should_stop=lambda: True, wait=self.wait)
         self.assertEqual(result['state'], 'guest_cancelled')
         self.assertEqual(self.write_calls, [])
 
@@ -197,7 +271,7 @@ class GuestTests(unittest.TestCase):
         self.controller.guest.save = Mock(side_effect=OSError('PRIVATE'))
         with self.assertRaises(OSError):
             guest.execute(self.reader, self.options, self.data, self.controller.guest, job,
-                          lambda: copy.deepcopy(self.raw), wait=self.wait)
+                          wait=self.wait)
         self.assertEqual(self.write_calls, [])
         restarted = self.make()
         self.monitor(restarted)
@@ -210,7 +284,7 @@ class GuestTests(unittest.TestCase):
         self.raw = wlan()
         with self.assertRaises(ValueError):
             guest.execute(self.reader, self.options, self.data, self.controller.guest, self.job,
-                          lambda: self.raw, wait=self.wait)
+                          wait=self.wait)
         self.assertEqual(len(self.write_calls), 1)
 
     def test_guest_history_never_overwrites_optimization_ids_result_or_cooldown(self):
@@ -330,6 +404,22 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from('>H', sent, 18)[0], guest.WRITE_WLAN)
         self.assertEqual(json.loads(sent[36:])['params'], params)
         self.assertNotIn(b'PRIVATE', sent)
+
+    def test_full_wlan_read_requires_guest_gate_and_empty_parameters(self):
+        reader = tmp.Reader(Mock())
+        with self.assertRaises(tmp.ProtocolError):
+            reader.guest_request(guest.READ_WLAN)
+        with self.assertRaises(tmp.ProtocolError):
+            tmp.packet(guest.READ_WLAN, b'', 0, 1)
+        reader.allow_guest = True
+        with patch.object(reader, '_exchange', return_value=b'{}') as exchange:
+            with self.assertRaises(tmp.ProtocolError):
+                reader.guest_request(guest.READ_WLAN, {'guest': {'enable': True}})
+            exchange.assert_not_called()
+            self.assertEqual(reader.guest_request(guest.READ_WLAN), b'{}')
+            exchange.assert_called_once_with(guest.READ_WLAN, {}, 20)
+        packet = tmp.packet(guest.READ_WLAN, b'{}', 0, 1, allow_guest=True)
+        self.assertEqual(struct.unpack_from('>H', packet, 18)[0], 0x4009)
 
 
 if __name__ == '__main__':

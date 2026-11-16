@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0-dev.2
+
+- Corrige o bloqueio `guest_configuration_unavailable` no controle de visitantes M9: a consulta HTTPS de monitoramento não fornece isolamento, necessário para preservar a configuração ao escrever. A preparação e a confirmação agora usam a leitura WLAN completa pelo mesmo canal TMP autenticado.
+- Mantém a exigência de configuração completa, uma única tentativa de escrita e duas leituras de confirmação. Falhas distinguem leitura e validação no relatório, sem incluir SSID ou senha.
+- Acrescenta regressões para a resposta HTTPS incompleta, consulta TMP, falha de leitura e confirmação interrompida. Validação física de ligar/desligar continua pendente; atualização preserva configurações e entidades.
+
 ## 0.10.0-dev.1
 
 - Controle opcional da rede de visitantes existente, inicialmente no M9 Plus V2 / 1.9.1 Build 20250612 Rel. 45690 em AP. Validação física deste recurso ainda pendente; X50 mantém somente as funções anteriores.

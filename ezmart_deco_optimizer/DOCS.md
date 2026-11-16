@@ -1,4 +1,4 @@
-# EZmart Deco Optimizer — 0.10.0-dev.1
+# EZmart Deco Optimizer — 0.10.0-dev.2
 
 Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. Outros perfis X50 e M5 principal não estão validados.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.1` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.2` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 
@@ -29,6 +29,7 @@ Mantenha `deco_model: m9_plus`, `mqtt_enabled: true`, `mqtt_commands_enabled: tr
 - **Ligar** solicita visitantes em 2,4 e 5 GHz; **desligar** desativa ambas. Não há configuração por nó: o comando vai ao principal, que gerencia a malha.
 - O estado ON significa que pelo menos uma dessas bandas está ativa; os atributos `bands` mostram cada uma. O estado vem da leitura do principal, também refletindo mudanças feitas no app Deco. Não confirma individualmente a emissão ou o acesso à internet em cada satélite.
 - O app envia uma única escrita parcial, preservando o isolamento lido e omitindo SSID, senha, segurança, VLAN, duração e rede principal. Compara essas configurações em memória após a mudança. Nenhuma delas é publicada no MQTT ou nos relatórios. O firmware pode renovar o prazo de uma rede temporária ao ligá-la.
+- Desde a `0.10.0-dev.2`, a preparação e a confirmação usam a leitura WLAN completa via TMP, que inclui isolamento. A consulta HTTPS permanece no monitoramento periódico. A `dev.1` tentava validar a resposta HTTPS incompleta e podia encerrar com `guest_configuration_unavailable` antes de enviar a alteração.
 - Confirmação exige duas leituras consecutivas com o estado solicitado e as configurações protegidas iguais. São até 12 leituras, espaçadas em 5 segundos, além do tempo das consultas. Perda de resposta nunca repete a escrita. Não há comando de visitantes na inicialização ou reconexão MQTT.
 - Intervalo próprio de 60 segundos; comandos recusados não ficam na fila. Visitantes e otimização usam o mesmo trabalhador; uma aplicação de canais pendente bloqueia a mudança de visitantes. O histórico de otimização permanece separado.
 
@@ -44,7 +45,7 @@ Os atributos do interruptor mostram `result`, `blocked_reason`, `write_attempted
 | `guest_outcome_uncertain` | Não houve confirmação suficiente; não reenviou o comando |
 | `guest_settings_changed` | A comparação detectou mudança adicional; conferir no app Deco, sem reversão automática |
 | `guest_profile_not_validated` | Modelo, hardware, firmware ou modo fora do piloto; nenhuma escrita |
-| `guest_configuration_unavailable` | Leitura incompleta ou configuração não reconhecida; nenhuma escrita |
+| `guest_configuration_unavailable` | Nenhuma escrita; `stage` no relatório diferencia falha de leitura (`configuration_read`) de configuração incompleta/não reconhecida (`configuration_validation`) |
 | `interrupted_no_replay` | Houve reinício durante o pedido; nenhuma retomada automática |
 
 Relatórios filtrados ficam em `/data/guest_wifi_report.json` e `/data/guest_wifi_state.json` **dentro do EZmart**. O `/data` do Terminal é outro diretório. Para o piloto, os atributos do interruptor e os logs de conclusão já permitem compartilhar o resultado sem credenciais. Desabilitar `guest_control_enabled` remove o interruptor da descoberta MQTT; não altera a rede de visitantes no Deco.

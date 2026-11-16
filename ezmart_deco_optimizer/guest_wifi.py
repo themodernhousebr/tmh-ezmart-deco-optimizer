@@ -9,7 +9,8 @@ BANDS = ('band2_4', 'band5_1')
 READ_DEVICES = 0x400F
 READ_MODE = 0x40A0
 WRITE_WLAN = 0x4008
-READ_OPS = (READ_DEVICES, READ_MODE)
+READ_WLAN = 0x4009
+READ_OPS = (READ_DEVICES, READ_MODE, READ_WLAN)
 FIRMWARE = '1.9.1 Build 20250612 Rel. 45690'
 
 
@@ -178,14 +179,14 @@ class Control:
         self.persist()
 
 
-def execute(reader, options, data, control, job, snapshot, should_stop=lambda: False,
+def execute(reader, options, data, control, job, should_stop=lambda: False,
             wait=None, clock=time.time):
     """A single explicit guest write followed by at most twelve passive observations."""
     if (not enabled(options) or not options.get('mqtt_enabled')
             or not options.get('mqtt_commands_enabled') or not options.get('tmp_enabled')):
         return {'state': 'guest_control_disabled'}
     desired = job.get('action') == 'guest_on'
-    if job.get('action') not in ('guest_on', 'guest_off') or snapshot is None:
+    if job.get('action') not in ('guest_on', 'guest_off'):
         return {'state': 'invalid_guest_command'}
     wait = wait or (lambda seconds: time.sleep(seconds))
     report = {'state': 'guest_preflight_failed', 'write_attempted': False, 'acknowledged': False,
@@ -197,11 +198,17 @@ def execute(reader, options, data, control, job, snapshot, should_stop=lambda: F
         if not supported_profile(reader):
             return {'state': 'guest_profile_not_validated'}
         try:
-            raw = snapshot()
+            # The HTTPS admin/wireless view omits host_isolation. Use the full
+            # mobile-app WLAN view, on this pinned/authenticated TMP session,
+            # for both the preservation baseline and all post-write checks.
+            raw = read_result(reader, READ_WLAN)
+        except Exception:
+            return dict(report, state='guest_configuration_unavailable', stage='configuration_read')
+        try:
             baseline = protected_config(raw)
             params = write_params(raw, desired)
         except Exception:
-            return {'state': 'guest_configuration_unavailable', 'write_attempted': False}
+            return dict(report, state='guest_configuration_unavailable', stage='configuration_validation')
         before = project(raw)
         report['observed'] = dict(before, updated_at=clock())
         if all(value == desired for value in before['bands'].values()):
@@ -225,7 +232,7 @@ def execute(reader, options, data, control, job, snapshot, should_stop=lambda: F
             if should_stop() or wait(5):
                 break
             try:
-                after = snapshot()
+                after = read_result(reader, READ_WLAN)
                 observed = project(after)
                 if observed['state'] != 'available':
                     stable = 0

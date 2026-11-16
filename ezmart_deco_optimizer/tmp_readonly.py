@@ -27,7 +27,7 @@ def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan
     if (opcode not in (ALLOC, QUALITY) and not (allow_scan and opcode == SCAN)
             and not (allow_acs_scan and opcode == M9_ACS_SCAN)
             and not (allow_acs_apply and opcode == M9_ACS_APPLY)
-            and not (allow_guest and opcode in (0x4008, 0x400F, 0x40A0))):
+            and not (allow_guest and opcode in (0x4008, 0x4009, 0x400F, 0x40A0))):
         raise ProtocolError()
     business = struct.pack('>BBHBBHIII', 1, 2, opcode, 4 if pull else 2,
                            0, transaction, zlib.crc32(body) if body else 0, len(body), offset) + body
@@ -288,7 +288,7 @@ def run_probe(options, data, save, clock=time.time, channel_snapshot=None, shoul
             stage = 'guest_wifi'
             reader.allow_guest = True
             try:
-                return execute(reader, options, data, guest_control, guest_job, channel_snapshot,
+                return execute(reader, options, data, guest_control, guest_job,
                                should_stop=should_stop, wait=wait, clock=clock)
             finally:
                 reader.allow_guest = False
