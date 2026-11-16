@@ -76,6 +76,10 @@ class Controller:
     def set_monitor(self, status, healthy):
         with self.lock:
             self.healthy = healthy
+            observed = status.get('diagnostics', {}).get('guest', {})
+            if (observed.get('state') == 'available'
+                    and observed.get('updated_at', 0) >= self.guest_observed.get('updated_at', 0)):
+                self.guest_observed = observed
             self.monitor = status
             self.monitor_at = self.clock() if status else 0
 
@@ -101,7 +105,7 @@ class Controller:
             return 'commands_disabled'
         if self.busy or self.pending:
             return 'busy'
-        if not self.reachable():
+        if self.x50 and not self.reachable():
             return 'monitor_unavailable'
         if guest_wifi.enabled(self.options) and self.clock() < self.guest.state['next_allowed']:
             return 'guest_cooldown'
@@ -148,10 +152,6 @@ class Controller:
             return 'commands_disabled'
         if self.busy or self.pending:
             return 'busy'
-        observed = self.guest_snapshot()
-        if (not self.guest_readable() or observed.get('state') != 'available'
-                or self.clock() - observed.get('updated_at', 0) > max(60, self.options.get('poll_seconds', 30) + 30)):
-            return 'guest_monitor_unavailable'
         try:
             path = self.data / 'tmp_state.json'
             due = json.loads(path.read_text()).get('next_login', 0) if path.exists() else 0
@@ -211,7 +211,7 @@ class Controller:
             if not job:
                 return None
             self.active_job = job
-            if self.clock() > job['expires_at'] or not self.reachable():
+            if self.clock() > job['expires_at'] or (self.x50 and not self.reachable()):
                 self.finish({'state': 'request_expired'})
                 return None
             self.busy = True
@@ -296,11 +296,12 @@ class Controller:
                 'channels_at': iso(channels.get('updated_at', 0)),
                 'performance_at': iso(self.monitor.get('diagnostics', {}).get('performance', {}).get('updated_at', 0)),
                 'guest_enabled': guest.get('enabled'),
-                'guest_available': (guest_wifi.enabled(self.options) and self.guest_readable()
-                                    and self.options.get('tmp_enabled', False) and self.options.get('mqtt_commands_enabled', False)
-                                    and guest.get('state') == 'available'
-                                    and self.clock() - guest.get('updated_at', 0) <= max(60, self.options.get('poll_seconds', 30) + 30)),
-                'guest_details': {'bands': guest.get('bands', {}), 'observed_at': iso(guest.get('updated_at', 0)),
+                'commands_available': (not self.fault and self.options.get('tmp_enabled', False)
+                                       and self.options.get('mqtt_commands_enabled', False)),
+                'guest_available': (guest_wifi.enabled(self.options) and not self.fault
+                                    and self.options.get('tmp_enabled', False)
+                                    and self.options.get('mqtt_commands_enabled', False)),
+                'guest_details': {'observation_fresh': self.guest_readable(), 'bands': guest.get('bands', {}), 'observed_at': iso(guest.get('updated_at', 0)),
                                   'result': self.guest.state['result'], 'blocked_reason': guest_reason,
                                   'verification_scope': 'main_deco', 'request_id': self.guest.state['request_id'],
                                   'write_attempted': self.guest.state['write_attempted'],

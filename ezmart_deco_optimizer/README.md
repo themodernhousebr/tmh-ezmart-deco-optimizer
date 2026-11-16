@@ -2,7 +2,7 @@
 
 <img src="icon.png" alt="The Modern House" width="128">
 
-**0.10.0-dev.4** — monitoramento Deco e otimização sob demanda pelo Home Assistant.
+**0.10.0-dev.5** — monitoramento Deco e otimização sob demanda pelo Home Assistant.
 
 Cria um dispositivo MQTT com 22 entidades: botões para solicitar otimização ou verificar a última aplicação, disponibilidade, resultado, recomendação, canais, horários, inventário e CPU/memória. Cada pedido faz uma análise; aplica somente quando recomendado. Não há otimização por intervalo. Pedidos simultâneos, antigos ou dentro do intervalo mínimo são bloqueados, sem fila para executar depois.
 

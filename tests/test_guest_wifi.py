@@ -305,7 +305,7 @@ class GuestTests(unittest.TestCase):
             self.monitor(control)
             self.assertNotEqual(control.accept('guest_on'), 'accepted')
         self.now += 61
-        self.assertEqual(self.controller.accept('guest_on'), 'guest_monitor_unavailable')
+        self.assertEqual(self.controller.guest_reason(), 'ready')
         self.monitor()
         run.save(self.data/'tmp_state.json', {'next_login': self.now + 900})
         self.assertEqual(self.controller.accept('guest_on'), 'tmp_auth_cooldown')
@@ -339,21 +339,24 @@ class GuestTests(unittest.TestCase):
         self.controller.set_monitor(status, False)
         self.assertTrue(self.controller.view()['guest_available'])
         self.assertIsNone(self.controller.view()['node_count'])
-        self.assertEqual(self.controller.reason(), 'monitor_unavailable')
+        self.assertEqual(self.controller.reason(), 'ready')
         self.assertEqual(self.controller.guest_reason(), 'ready')
         self.now += 61
-        self.assertFalse(self.controller.view()['guest_available'])
+        self.assertFalse(self.controller.view()['guest_details']['observation_fresh'])
+        self.assertTrue(self.controller.view()['guest_available'])
 
     def test_failed_wlan_or_global_failure_disables_guest_even_after_success(self):
         self.controller.guest_observed = dict(guest.project(wlan(True)), updated_at=self.now)
         self.controller.set_monitor({'diagnostics': {'guest': {'state': 'unavailable',
                                                               'updated_at': self.now}}}, False)
-        self.assertFalse(self.controller.view()['guest_available'])
+        self.assertFalse(self.controller.view()['guest_details']['observation_fresh'])
+        self.assertTrue(self.controller.view()['guest_available'])
         self.monitor()
         self.assertTrue(self.controller.view()['guest_available'])
         self.controller.set_monitor({}, False)
-        self.assertFalse(self.controller.view()['guest_available'])
-        self.assertEqual(self.controller.guest_reason(), 'guest_monitor_unavailable')
+        self.assertFalse(self.controller.view()['guest_details']['observation_fresh'])
+        self.assertTrue(self.controller.view()['guest_available'])
+        self.assertEqual(self.controller.guest_reason(), 'ready')
 
     def test_inventory_auth_failure_still_aborts_independent_reads(self):
         class AuthenticationError(Exception):
@@ -364,6 +367,49 @@ class GuestTests(unittest.TestCase):
             run.collect(client, self.options, 1, set(), {}, {})
         client.get_device_mode.assert_not_called()
         client.request.assert_not_called()
+
+    def test_explicit_guest_request_with_failed_inventory_uses_live_tmp_preflight(self):
+        self.controller.set_monitor({}, False)
+        self.assertEqual(self.controller.accept('guest_on'), 'accepted')
+        job = self.controller.take()
+        self.assertIsNotNone(job)
+        self.assertEqual(guest.execute(self.reader, self.options, self.data, self.controller.guest,
+                                      job, wait=self.wait, clock=lambda: self.now)['state'],
+                         'guest_enabled_verified')
+        self.assertEqual(len(self.write_calls), 1)
+
+    def test_guest_last_observation_survives_monitor_failure_without_becoming_fresh(self):
+        self.monitor(raw=wlan(True))
+        self.controller.set_monitor({}, False)
+        view = self.controller.view()
+        self.assertTrue(view['guest_enabled'])
+        self.assertFalse(view['guest_details']['observation_fresh'])
+        self.assertTrue(view['guest_available'])
+        self.controller.guest_observed = dict(guest.project(wlan(False)), updated_at=self.now + 10)
+        self.monitor(raw=wlan(True))
+        self.assertFalse(self.controller.view()['guest_enabled'])
+
+    def test_main_processes_guest_during_https_cooldown_without_login(self):
+        self.options.update(mqtt_enabled=True, password='PRIVATE', tmp_email='owner@example.test',
+                            tmp_password='PRIVATE')
+        self.controller.set_monitor({}, False)
+        self.assertEqual(self.controller.accept('guest_on'), 'accepted')
+        options = self.data / 'options.json'
+        run.save(options, self.options)
+        run.save(self.data / 'state.json', {'next_login': self.now + 900})
+        # main() uses /data paths; route them to this isolated fixture.
+        real_path = Path
+        def path(value):
+            return self.data if value == '/data' else real_path(value)
+        stop = threading.Event()
+        def execute(options, data, save, **kwargs):
+            self.assertEqual(kwargs['guest_job']['action'], 'guest_on')
+            stop.set()
+            return {'state': 'guest_enabled_verified'}
+        with patch.object(run, 'Path', side_effect=path), patch.object(run, 'STOP', stop),                 patch('ha_control.Controller', return_value=self.controller),                 patch('mqtt_bridge.Bridge', return_value=SimpleNamespace(start=lambda: None,
+                      thread=SimpleNamespace(join=lambda **kw: None))),                 patch.dict(sys.modules, {'tplink_deco_api': SimpleNamespace(DecoClient=Mock())}),                 patch.object(tmp, 'run_probe', side_effect=execute):
+            run.main()
+        self.assertEqual(self.controller.guest.state['result'], 'guest_enabled_verified')
 
     def test_worker_routes_guest_separately_from_optimize(self):
         self.controller.accept('guest_on')

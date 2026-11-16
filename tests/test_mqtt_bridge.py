@@ -87,6 +87,7 @@ class MQTTTests(unittest.TestCase):
                 self.assertEqual(payload['qos'], 0)
                 self.assertEqual(json.loads(payload['payload_press'])['session'], 'nonce')
                 self.assertEqual(payload['availability_mode'], 'all')
+                self.assertIn('commands_available', payload['availability'][1]['value_template'])
             else:
                 self.assertEqual(payload['state_topic'], self.bridge.base+'/state')
         self.assertNotIn('password', json.dumps(messages))

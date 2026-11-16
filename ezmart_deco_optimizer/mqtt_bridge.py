@@ -85,7 +85,7 @@ def discovery(identity, base, version, session, model='m9_plus', guest_enabled=F
             # Session rotates at every broker connection. Old discovery cannot invoke an old job.
             config.update(command_topic=base + '/command', qos=0, retain=False,
                           payload_press=json.dumps({'action': field, 'session': session}, separators=(',', ':')))
-            key = 'ready' if field == 'optimize' else 'verify_ready'
+            key = ('ready' if field == 'optimize' else 'verify_ready') if model == 'x50' else 'commands_available'
             config.pop('availability_topic')
             config.update(availability=[{'topic': base + '/availability'},
                                        {'topic': base + '/state', 'value_template': "{{ 'online' if value_json." + key + " else 'offline' }}"}],

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0-dev.5
+
+- Controles M9 disponíveis enquanto o app estiver conectado e comandos habilitados, independentemente de falhas no inventário ou leitura antiga. Disponibilidade MQTT passa a representar o serviço; sensores de prontidão e motivos de bloqueio mantêm intervalos e recusas.
+- Pedidos explícitos M9 entram no trabalhador mesmo sem monitoramento saudável e antes do próximo ciclo/login HTTPS. A execução mantém autenticação, validação ao vivo, reserva antes de escrever e ausência de replay. Sem referência WLAN válida, otimização não aplica; visitantes exige leitura TMP completa.
+- Visitantes conserva o último estado observado e informa `observation_fresh` e `observed_at` nos atributos. O estado não é confirmação otimista. Falha de leitura não representa rede desligada.
+- X50 mantém seus critérios anteriores de prontidão e disponibilidade nesta etapa.
+
 ## 0.10.0-dev.4
 
 - M9 usa `tmp_host_key_mode: automatic` por padrão, inclusive quando a opção ainda não existe em configurações antigas. Obtém e aceita a chave SSH apresentada ao conectar, confiando no IP reservado; não autentica a identidade por fingerprint.

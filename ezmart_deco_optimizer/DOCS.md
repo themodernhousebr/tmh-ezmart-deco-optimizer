@@ -1,4 +1,4 @@
-# EZmart Deco Optimizer — 0.10.0-dev.4
+# EZmart Deco Optimizer — 0.10.0-dev.5
 
 Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. Outros perfis X50 e M5 principal não estão validados.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.4` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.5` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 
@@ -212,3 +212,11 @@ Há entidades MQTT e acionamento por automações na 0.8, descritos em AUTOMATIO
 Para conferir a identidade por fingerprint, selecione `tmp_host_key_mode: pinned` e preencha `tmp_host_key_sha256` com uma chave validada. Nesse modo uma divergência bloqueia a autenticação. Preserve o fingerprint antigo já salvo ao migrar para automático: ele não valida a conexão nesse modo, mas mantém a identidade dos relatórios e bloqueios existentes. Instalações novas no automático podem deixar o fingerprint vazio.
 
 Essa opção pertence somente ao M9 SSH/TMP. O certificado X50 continua fixado e validado. A mudança não executa otimização ou visitantes na inicialização com MQTT habilitado.
+
+## Disponibilidade dos controles M9 — 0.10.0-dev.5
+
+Os botões M9 e o interruptor de visitantes ficam disponíveis com o serviço MQTT conectado e comandos habilitados. Uma falha de inventário ou leitura antiga não impede enviar um pedido explícito. `Pronto para otimizar` e os motivos de bloqueio continuam indicando se o app pode aceitar a ação: tarefa em andamento, intervalos, autenticação bloqueada e aplicação pendente ainda podem recusá-la.
+
+A aceitação não garante execução bem-sucedida: o trabalhador consulta o equipamento ao executar. Visitantes exige perfil suportado e configuração completa via TMP antes de escrever; otimização exige referência WLAN disponível antes de aplicar. Há uma tentativa por pedido e nenhuma retomada após reinício. Pedidos são processados antes do próximo ciclo HTTPS, inclusive durante pausa de autenticação HTTPS; a proteção de autenticação TMP permanece independente.
+
+Visitantes exibe o último estado confirmado mesmo durante falha de leitura. Os atributos `observation_fresh` (booleano) e `observed_at` distinguem leitura recente de histórico. Antes da primeira observação, o estado pode ser desconhecido. MQTT offline ou comandos desabilitados continuam tornando os controles indisponíveis. X50 mantém a disponibilidade anterior nesta versão.

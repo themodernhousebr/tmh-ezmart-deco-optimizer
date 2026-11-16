@@ -98,10 +98,10 @@ class ControlTests(unittest.TestCase):
             self.healthy(control)
             self.assertEqual(control.accept('optimize'), reason)
         self.now += 61
-        self.assertEqual(self.control.accept('optimize'), 'monitor_unavailable')
-        self.healthy()
         self.control.set_monitor({}, False)
-        self.assertEqual(self.control.accept('optimize'), 'monitor_unavailable')
+        self.assertTrue(self.control.view()['commands_available'])
+        self.assertEqual(self.control.accept('optimize'), 'accepted')
+        self.assertIsNotNone(self.control.take())
 
     def test_tmp_auth_guard_blocks_admission_without_consuming_a_request(self):
         run.save(self.data/'tmp_state.json', {'next_login': self.now + 900})

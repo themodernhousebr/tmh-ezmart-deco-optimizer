@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.10.0-dev.4'
+VERSION = '0.10.0-dev.5'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -192,6 +192,17 @@ def main():
     cooldown_logged = False
     try:
         while not STOP.is_set():
+            if controller and controller.pending:
+                if STOP.is_set():
+                    return 0
+                result = process_job(controller, client, options, data, stop=STOP)
+                if result is not None:
+                    if result.get('action_type') != 'guest_wifi':
+                        probe_results['tmp'] = {'updated_at': int(time.time()), **result}
+                    probe_times.pop('channels', None)
+                    next_poll = 0  # Fresh inventory after the action, not the pre-action snapshot.
+                if STOP.is_set():
+                    break
             if client is None:
                 remaining = max(0, due - time.time())
                 if remaining > 0:
@@ -242,15 +253,6 @@ def main():
                         controller.set_monitor(status, 'nodes' in status and 'mode' in status)
                     LOG.info('Ciclo %s concluído; próxima consulta em %s segundos. Resumo em /data/status.json.', cycle, interval)
                     next_poll = time.monotonic() + interval
-                if controller and controller.pending:
-                    if STOP.is_set():
-                        break
-                    result = process_job(controller, client, options, data)
-                    if result is not None:
-                        if result.get('action_type') != 'guest_wifi':
-                            probe_results['tmp'] = {'updated_at': int(time.time()), **result}
-                        probe_times.pop('channels', None)
-                        next_poll = 0  # Fresh inventory after the action, not the pre-action snapshot.
             except Exception as error:
                 LOG.warning('Falha de consulta: %s', json.dumps(error_summary(error)))
                 if controller:
