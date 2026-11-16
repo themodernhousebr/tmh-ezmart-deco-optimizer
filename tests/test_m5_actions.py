@@ -93,13 +93,19 @@ class M5OptimizationTests(unittest.TestCase):
 
     def test_unknown_profile_never_scans_or_applies(self):
         f, reader, channels = self.fixture(hardware='3.20')
-        self.assertEqual(f.run_action(reader, snapshot=channels)['state'], 'm5_profile_not_validated')
+        result = f.run_action(reader, snapshot=channels)
+        self.assertEqual(result['state'], 'm5_profile_not_validated')
+        self.assertEqual(result['profile_diagnostic']['master']['hardware_ver'], '3.20')
         self.assertEqual(reader.calls, [])
 
     def test_profile_metadata_errors_never_scan_or_apply(self):
         f, reader, channels = self.fixture()
         reader.profile_request.side_effect = TimeoutError('PRIVATE')
-        self.assertEqual(f.run_action(reader, snapshot=channels)['state'], 'm5_profile_not_validated')
+        result = f.run_action(reader, snapshot=channels)
+        self.assertEqual(result['state'], 'm5_profile_not_validated')
+        self.assertEqual(result['profile_diagnostic']['stage'], 'devices')
+        self.assertEqual(result['profile_diagnostic']['error_type'], 'TimeoutError')
+        self.assertNotIn('PRIVATE', json.dumps(result))
         self.assertEqual(reader.calls, [])
 
     def test_metadata_transport_gate_cannot_enable_any_write(self):
@@ -117,6 +123,16 @@ class M5OptimizationTests(unittest.TestCase):
                                    ('M5','3.0','1.9.6','FAP'), ('M9Plus','3.0',m5_profile.FIRMWARE,'FAP')]:
             self.assertFalse(m5_profile.supported(model, hw, fw, mode))
         self.assertFalse(m5_profile.supported_snapshot({'nodes':[], 'mode':'FAP'}))
+
+    def test_profile_diagnostic_never_exports_raw_body_or_identifiers(self):
+        reader = Mock()
+        reader.profile_diagnostic = {'version':1, 'subversion':2, 'chunk_bytes':8156,
+            'total_bytes':10528, 'offset':0, 'chunk_crc_matches':False, 'body':'PRIVATE'}
+        reader.profile_request.side_effect = tmp_readonly.ProtocolError('PRIVATE')
+        diagnostic = {}
+        self.assertFalse(m5_profile.read_supported(reader, diagnostic))
+        self.assertEqual(diagnostic['framing']['chunk_bytes'], 8156)
+        self.assertNotIn('PRIVATE', json.dumps(diagnostic))
 
     def test_guest_switch_is_discovered_with_existing_entity_id(self):
         configs = mqtt_bridge.discovery('pilot', 'test', run.VERSION, 'session', 'm5', True)

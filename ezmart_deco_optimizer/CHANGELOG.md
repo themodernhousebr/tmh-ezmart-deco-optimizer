@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0-dev.13
+
+- Recusa do perfil M5 antes de otimização inclui diagnóstico filtrado da leitura TMP: etapa, tipo de falha, código de API, perfil público reconhecido e metadados numéricos de enquadramento, conforme disponíveis.
+- Mantém exigência de perfil exato e bloqueio antes de iniciar ACS/aplicação. Não publica corpo bruto, identificadores de cliente nem mensagens arbitrárias de exceção.
+
 ## 0.11.0-dev.12
 
 - Piloto de ações M5 3.0/3.2, firmware exato 1.9.5 Build 20260602 Rel. 25369, AP/FAP: visitantes com preservação e otimização condicional via SSH/TMP. Monitoramento HTTP preservado; confirmação física das ações pendente.

@@ -81,6 +81,7 @@ class Reader:
         if opcode not in (0x400F, 0x40A0):
             raise ProtocolError()
         self.allow_profile_read = True
+        self.profile_diagnostic = {}
         try:
             return self._exchange(opcode, {}, 30)
         finally:
@@ -124,10 +125,19 @@ class Reader:
             version, subversion, returned_op, kind, error, tx, crc, total, offset = struct.unpack_from('>BBHBBHIII', payload)
             chunk = payload[20:]
             if version != 1 or subversion != 2 or (zlib.crc32(chunk) if chunk else 0) != crc:
+                if self.allow_profile_read:
+                    self.profile_diagnostic = {'version':version, 'subversion':subversion,
+                        'opcode':returned_op, 'kind':kind, 'error':error,
+                        'chunk_bytes':len(chunk), 'total_bytes':total, 'offset':offset,
+                        'chunk_crc_matches':zlib.crc32(chunk) == crc,
+                        'assembled_crc_matches':zlib.crc32(bytes(result) + chunk) == crc}
                 raise ProtocolError()
             if tx != self.transaction:
                 continue
             if returned_op != opcode or kind != 5 or error or total > MAX_RESULT:
+                if self.allow_profile_read:
+                    self.profile_diagnostic = {'opcode':returned_op, 'kind':kind, 'error':error,
+                        'chunk_bytes':len(chunk), 'total_bytes':total, 'offset':offset}
                 raise ProtocolError()
             if offset != len(result) or (expected_total is not None and total != expected_total):
                 raise ProtocolError()

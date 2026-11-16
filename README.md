@@ -2,7 +2,7 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.11.0-dev.12 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
+**0.11.0-dev.13 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 

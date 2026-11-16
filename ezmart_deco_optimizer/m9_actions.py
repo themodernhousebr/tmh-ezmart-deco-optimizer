@@ -276,8 +276,10 @@ def optimize_once(reader, options, data, save, channel_snapshot, *, clock=time.t
                 import m5_profile
                 if should_stop():
                     return {'state': 'cancelled_before_scan'}
-                if not m5_profile.read_supported(reader):
-                    return {'state': 'm5_profile_not_validated', 'write_attempted': False}
+                diagnostic = {}
+                if not m5_profile.read_supported(reader, diagnostic):
+                    return {'state': 'm5_profile_not_validated', 'write_attempted': False,
+                            'profile_diagnostic': diagnostic}
             report = {'state': 'preflight_reserved', 'request_id': request_id, 'backend': 'm9_acs',
                       'started_at': int(clock()), 'apply_command_attempted': False}
             journal['actions'][request_id] = {'target_hash': target, 'report': report}
