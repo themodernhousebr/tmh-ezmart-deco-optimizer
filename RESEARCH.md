@@ -170,9 +170,7 @@ Comandos usam MQTT 5, QoS 0 e sem retenção. A assinatura solicita retainAsPubl
 Testes incluem servidor MQTT 5 mínimo em loopback e biblioteca Paho real, isolada em /private/tmp, sem tocar Deco ou HA. Isso valida a comunicação com Paho e as propriedades de recepção, não substitui teste com o Mosquitto e a integração HA reais. O código do protocolo de otimização permanece o mesmo validado na 0.7. Blueprint e painel são artefatos para instalação pelo usuário; nenhuma automação real foi criada ou habilitada durante o desenvolvimento.
 
 
-## X50 dos clientes — análise offline de 15/11/2026
-
-Cenário informado: X50 principal em modo roteador, DHCP ativo e modem da operadora a montante. A foto identifica uma unidade **Deco X50 (US), Ver: 1.0**. O firmware instalado ainda era desconhecido nesta primeira etapa; a confirmação posterior está registrada abaixo. Não generalizar essa etiqueta para todos os clientes.
+## X50 — análise offline do firmware
 
 Referência baixada da [TP-Link Brasil, X50 V1](https://www.tp-link.com/br/support/download/deco-x50/v1/): **1.8.0 Build 25102213 Rel. 43970**, publicada em 08/12/2025. ZIP SHA-256 `f5891e871865d6213b1a6b05aa4d65051e19a0a37bee0b6550d9033fb4092a12`; binário original `075ed06721207220b722451bf33cbe8ed10f7c981e15bbe71daaa35dcdcb2ea6`.
 
@@ -187,13 +185,11 @@ No `tmpsvr` AArch64, resolvendo relocations de PT_DYNAMIC:
 
 O controlador Lua mantém resultado da análise e aplicação separados. A aplicação consome a recomendação armazenada e chama `set_best_channel`; há espera mínima interna de 1800 segundos após aplicação. A rotina Wi-Fi também pode reiniciar repacd e alterar largura de 2,4 GHz. Isso reforça compatibilidade de protocolo, **não homologa autenticação, transporte ou aplicação no X50 real**. SHA-256 de tmpsvr: `8bb230007719da1bc309ac1a564c00d3ba24259940225f86046b2e0217e5c197`; controlador: `48755fc546bd6ebca912b70c9bd3202f5ba8b7b20bc9326aaea4c88fc92090ab`.
 
-Antes da etiqueta, também foi examinada a imagem oficial [X50 V3 1.7.0](https://www.tp-link.com/br/support/download/deco-x50/v3/), com rotinas ACS presentes. Essa variante não substitui a V1 identificada. Próxima validação exige firmware instalado e teste controlado no X50 principal; nenhum comando novo foi enviado nesta investigação.
+Também foi examinada a imagem oficial [X50 V3 1.7.0](https://www.tp-link.com/br/support/download/deco-x50/v3/), com rotinas ACS presentes. Revisões V1, V1.30 e V3 não são tratadas como intercambiáveis; a análise offline não autoriza instalação de firmware em outra revisão.
 
-## X50 principal com firmware 1.8.4 — transporte diferente confirmado parcialmente
+## X50 firmware 1.8.4 — arquitetura do transporte
 
-Em 15/11/2026, o operador forneceu a tela do X50 principal com **1.8.4 Build 26051413 Rel. 27460** e informou que a etiqueta US V1.0 pertence à mesma unidade. As imagens apresentam identificadores MAC diferentes; a associação é informação do operador, não validação independente da revisão física. Não publicar os identificadores, nem inferir que V1.0 e V1.30 são intercambiáveis.
-
-A [página oficial brasileira X50 V1.30](https://www.tp-link.com/br/support/download/deco-x50/v1.30/) oferece exatamente esse build, publicado em 26/06/2026. O [pacote oficial](https://static.tp-link.com/upload/firmware/2026/202606/20260626/X50v1_3_X55v1_3_XM50v1_HB6300v1_W8100v1_WM9000v1-ver1-8-4-P1%5B26051413-rel27460%5D.zip) contém uma imagem identificada como X50v1_3/X55v1_3 e outros modelos. Foi baixado para análise offline do software correspondente ao print, sem recomendar ou realizar atualização de firmware.
+A [página oficial brasileira X50 V1.30](https://www.tp-link.com/br/support/download/deco-x50/v1.30/) oferece o firmware 1.8.4 Build 26051413 Rel. 27460, publicado em 26/06/2026. O [pacote oficial](https://static.tp-link.com/upload/firmware/2026/202606/20260626/X50v1_3_X55v1_3_XM50v1_HB6300v1_W8100v1_WM9000v1-ver1-8-4-P1%5B26051413-rel27460%5D.zip) contém uma imagem identificada como X50v1_3/X55v1_3 e outros modelos. Foi baixado para análise offline, sem recomendar ou realizar atualização de firmware.
 
 SHA-256:
 
@@ -213,17 +209,11 @@ O transporte distingue os cenários:
 - A função Lua `libtpap.get_port` resolve a constante `30001`; o servidor contém TLS e autenticação SPAKE2+, além de um canal TMP. Isso exige um transporte/autenticação próprios; trocar a porta do cliente SSH não basta.
 - O firmware examinado contém o controlador ACS em `admin/mobile_app/network_optimize`, mas não um arquivo de controlador `admin/network_optimize`. Não foi demonstrada uma rota HTTPS alternativa para otimização.
 
-Testes feitos pelo operador no Terminal/SSH do HA na rede do X50: TCP/20001 retornou `Connection refused`, código 1; TCP/30001 conectou, código 0. Não foram enviados login, análise ou aplicação. A porta aberta é coerente com TPAP no firmware, mas não prova handshake, identidade, autenticação nem operação ACS funcionando no dispositivo.
+Arquitetura de compatibilidade: SSH/TMP no M9 e TPAP/TLS no X50, compartilhando regras de recomendação, IDs persistentes, intervalos mínimos, verificação e entidades MQTT.
 
-Direção de compatibilidade: preservar o transporte SSH/TMP validado no M9 e acrescentar TPAP separadamente, compartilhando as regras de recomendação, IDs persistentes, cooldown, verificação e entidades MQTT. A 0.8.0-dev.2 ainda não implementa TPAP. Nenhuma mudança de runtime ou rebuild é necessária para registrar estes resultados; a homologação do X50 continua pendente.
+## X50 — TLS e diagnóstico independente
 
-## X50 — handshake TLS observado e diagnóstico independente
-
-Em 15/11/2026 o operador instalou OpenSSL no app Terminal/SSH e executou `s_client -connect 192.168.68.1:30001 -brief`, com entrada encerrada e timeout externo de oito segundos. A saída confirmou `CONNECTION ESTABLISHED`, TLS 1.3, `TLS_AES_256_GCM_SHA384`, chave temporária X25519, certificado `CN=Deco X50(US), OU=HOMEWIFISYSTEM` e código final 0. A cadeia apresentou uma CA intermediária HOMEWIFISYSTEM CA da TP-LINK SYSTEMS INC.
-
-O mesmo teste reportou `unable to get local issuer certificate` (código de verificação 20). O código final 0 do s_client sem `-verify_return_error` não prova confiança no certificado. A conexão está demonstrada, mas a cadeia ainda não foi validada no aparelho. Nenhum login ou comando ACS foi enviado nesse teste.
-
-Na imagem oficial 1.8.4 foi localizada `/etc/tss/root_ca.pem`, certificado público autoassinado com sujeito TP-LINK SYSTEMS DEVICE ROOT CA. SHA-256 do certificado DER: `fa85d87d218313286f0ef67628d177a1270a446dbd1554b7d47d86aee2fdb216`. Validade declarada: 22/11/2024 a 15/11/2054. Apenas o certificado público foi extraído; nenhuma chave privada foi lida. Ele foi incorporado ao diagnóstico independente `tools/x50_tls_probe.py`, com validação obrigatória da cadeia, nome de produto e opção de comparação da impressão individual. A correspondência desta raiz com a cadeia do X50 físico permanece pendente do diagnóstico do operador.
+Na imagem oficial 1.8.4 foi localizada `/etc/tss/root_ca.pem`, certificado público autoassinado com sujeito TP-LINK SYSTEMS DEVICE ROOT CA. SHA-256 do certificado DER: `fa85d87d218313286f0ef67628d177a1270a446dbd1554b7d47d86aee2fdb216`. Validade declarada: 22/11/2024 a 15/11/2054. Apenas o certificado público foi extraído; nenhuma chave privada foi lida. Ele foi incorporado ao diagnóstico independente `tools/x50_tls_probe.py`, com validação obrigatória da cadeia, nome de produto e opção de comparação da impressão individual.
 
 O diagnóstico usa Python padrão, não depende da imagem do app e não altera seu runtime, versão, transporte M9 ou entidades MQTT. Limita-se a TLS e fecha a conexão antes de qualquer mensagem de aplicação. Uma falha de certificado não provoca reconexão sem validação. O nome do produto não é uma identidade individual nem prova correspondência com um IP; esses limites constam explicitamente da saída.
 
@@ -231,11 +221,7 @@ A análise estática de libtpap identificou mensagens de autenticação SPAKE2+ 
 
 Testes do diagnóstico cobrem CA pública exata, validação obrigatória, modelo inesperado, comparação de impressão, falhas de certificado sem fallback, timeouts, recusa TCP e ausência de dados de aplicação. São testes locais simulados; não substituem o teste físico nem homologam otimização no X50.
 
-## X50 — cadeia validada no cliente e negociação de parâmetros preparada
-
-Em 15/11/2026 o operador executou o diagnóstico v1 do commit `7b93593` no Terminal/SSH do Home Assistant da residência do cliente, usando Python 3.14.10. Resultado fornecido em captura: `state: tls_verified`, `vendor_chain_verified: true`, modelo `Deco X50(US)`, TLS 1.3, `TLS_AES_256_GCM_SHA384`, duração 0,043 segundos e zero bytes de aplicação enviados. Isso confirma que a CA pública incorporada valida a cadeia apresentada por esse X50. `hostname_verified: false` indica que não foi comparado um hostname/IP; `certificate_pin_matched: null` indica a primeira coleta, sem impressão individual prévia. Autenticação e otimização continuaram `not_tested`. A impressão individual foi entregue ao operador, mas não é embutida no código ou publicada neste documento.
-
-O operador esclareceu que o M9 fica em sua própria residência e o X50 na residência de um cliente, com conta TP-Link diferente. Os diagnósticos não reutilizam credenciais entre esses ambientes. A revisão 2 solicita somente o e-mail do proprietário do X50 no Terminal e exige a impressão previamente observada no mesmo equipamento antes de transmitir uma mensagem.
+## X50 — negociação de parâmetros TPAP
 
 Na imagem oficial 1.8.4 já identificada acima, a análise estática da biblioteca `libtpap.so` sustenta a negociação inicial:
 
@@ -245,11 +231,9 @@ Na imagem oficial 1.8.4 já identificada acima, a análise estática da bibliote
 
 O diagnóstico v2 implementa somente esse primeiro intercâmbio, opcional e sem retransmissão. Não implementa `pake_share`, `pake_confirm`, reutilização de sessão, canais TPAP/TMP ou operações ACS. Parâmetros sensíveis não saem no JSON resumido. O limite de 8192 bytes, validação estrita do cabeçalho/CRC/sequência, rejeição de JSON ambíguo e um prazo único impedem interpretar respostas truncadas ou inesperadas como negociação válida. A rotina principal de TLS v1 permanece disponível sem transmitir mensagens de aplicação.
 
-Foi consultado o [protótipo TPAP de raymondlo84](https://github.com/raymondlo84/tapo-tpap-client/blob/main/tpap_proto.py) como comparação de campos SPAKE2+. Ele usa HTTP e hash de usuário diferente para dispositivos Tapo; seu transporte, derivações e comandos genéricos não foram executados nem incorporados ao diagnóstico Deco. A implementação da mensagem acima deriva da biblioteca do firmware X50, mas seu funcionamento físico ainda aguarda o teste do cliente. O runtime M9 e a versão do app permanecem inalterados.
+Foi consultado o [protótipo TPAP de raymondlo84](https://github.com/raymondlo84/tapo-tpap-client/blob/main/tpap_proto.py) como comparação de campos SPAKE2+. Ele usa HTTP e hash de usuário diferente para dispositivos Tapo; seu transporte, derivações e comandos genéricos não foram executados nem incorporados ao diagnóstico Deco. A mensagem deriva da biblioteca do firmware X50; o transporte M9 permanece separado.
 
-## X50 — parâmetros físicos confirmados e diagnóstico de login completo
-
-O operador executou o diagnóstico v2 do commit `27bbccd` no HA do cliente. A captura registra `pake_parameters_received`, `api_code: 0`, certificado fixado correspondente, TLS 1.3, 295 bytes de aplicação enviados e duração de 0,088 segundos. O perfil retornado foi suíte 1, `aes_128_ccm`, 100.000 iterações, aleatório e salt de 32 bytes, ponto não comprimido de 65 bytes e ausência de `extra_crypt`. `owner_account_verified: false` é esperado nesta etapa: nem a senha nem o papel da conta foram verificados. Isso resolve a pendência do enquadramento inicial v2, mas não a autenticação completa.
+## X50 — autenticação SPAKE2+
 
 A preparação do diagnóstico v3 usa a mesma imagem oficial 1.8.4 e análise estática de código, sem ler arquivos de conta de qualquer equipamento:
 
@@ -262,18 +246,16 @@ A opção `--authenticate` exige a impressão conhecida e uma biblioteca de curv
 
 O relatório diferencia credenciais verificadas, prova do servidor, token recebido, envio tentado/completo e eventual erro de protocolo. Não exporta credenciais, material da derivação, confirmações ou tokens. Autenticação bem-sucedida não atesta papel de proprietário/admin nem autorização para otimização; essa distinção aparece em `account_role_verified: false`. O transporte do app e a versão 0.8.0-dev.2 não foram alterados, e a biblioteca adicional é usada apenas no diagnóstico e nos testes.
 
-Validação local: vetor P-256/SHA256 completo do RFC 9383, Apêndice C (X e as duas confirmações esperadas), verificador independente em memória com PBKDF2/PAKE, respostas fragmentadas, senha errada, prova inválida apesar de API 0, token ausente, perfil não suportado, ponto inválido/identidade, limite de custo, certificado divergente, falha de envio sem repetição e entrada oculta. Esses testes não substituem a execução do novo modo no X50 do cliente. Nenhuma autenticação com senha ou otimização física do X50 foi concluída nesta revisão.
+Validação local: vetor P-256/SHA256 completo do RFC 9383, Apêndice C (X e as duas confirmações esperadas), verificador independente em memória com PBKDF2/PAKE, respostas fragmentadas, senha errada, prova inválida apesar de API 0, token ausente, perfil não suportado, ponto inválido/identidade, limite de custo, certificado divergente, falha de envio sem repetição e entrada oculta. Esses testes usam transporte simulado e não fazem login em equipamentos reais.
 
-## X50 — autenticação física confirmada e leitura TMP preparada
-
-O operador executou a revisão 3 do commit `6ab7c75` no HA do cliente, com Python 3.14.10 e PyCryptodome 3.23.0 do Alpine. A captura de 15/11/2026 mostra `authentication_verified`, certificado individual correspondente, `server_proof_verified: true`, `account_credentials_verified: true` e `session_token_received: true`. Foram duas mensagens e 540 bytes enviados, em 0,388 segundo. `account_role_verified: false` preserva a ausência de consulta de permissões; `optimization: not_tested` continua correto. Essa evidência resolve a pendência de autenticação descrita na seção anterior, apenas para o equipamento e perfil testados.
+## X50 — sessão cifrada e leitura TMP
 
 A revisão 4 acrescenta `--read-info` como diagnóstico independente, com base na mesma imagem oficial 1.8.4:
 
 - `spake2p_get_K_shared` (`0x17688`) também deriva 32 bytes com HKDF-SHA256, salt vazio e rótulo `SharedKey`. O vetor do [RFC 9383, Apêndice C](https://www.rfc-editor.org/rfc/rfc9383.html#appendix-C) passou a conferir essa saída, além dos pontos e confirmações. A chave só chega ao transporte depois da prova mútua válida e permanece em memória.
 - `session_key_generate` (`0x12818`) deriva a chave AES com salt `tp-kdf-salt-aes128-key` e info `tp-kdf-info-aes128-key`, ambos de 22 bytes, usando os primeiros 16 bytes da saída HKDF. Deriva o prefixo IV com salt/info correspondentes terminados em `-iv`, ambos de 21 bytes, usando os primeiros oito bytes. Não inclui terminadores NUL. O nonce CCM tem 12 bytes: prefixo de oito e sequência de quatro exatamente como transmitida. `session_encrpyt`/`session_decrpyt` (`0x12a68`/`0x12908`) e `aes_ccm_encrypt`/`aes_ccm_decrypt` (`0xd4d0`/`0xd5d4`) mostram tag de 16 bytes, sem AAD.
 - `tpap_channel_write` (`0x1a68c`) envia cabeçalho TPAP de 24 bytes, tipo 2, nome de canal `TMP` preenchido até oito bytes, payload cifrado e tag. A sequência nativa é little-endian. Diferentemente da resposta de login, o tráfego de canal usa flag 1 nos dois sentidos: `tpap_channel_read_timeout` chama `tscp_flag_verify` com tipo 1 (`0x1aa28`). O CRC cobre cabeçalho com seed `0x92BF30ED` e corpo cifrado.
-- O callback de abertura TMP (`0x1bf98`) conecta a `127.0.0.1:20002`; envio (`0x1bf14`) encaminha os bytes e recepção (`0x1bd24`) reconhece o transporte TMP type-5 e controles de quatro bytes. Isso sustenta o encapsulamento do framing TMP já usado pelo M9, sem modificar aquele transporte. Compatibilidade do canal no X50 físico continua pendente.
+- O callback de abertura TMP (`0x1bf98`) conecta a `127.0.0.1:20002`; envio (`0x1bf14`) encaminha os bytes e recepção (`0x1bd24`) reconhece o transporte TMP type-5 e controles de quatro bytes. Isso sustenta o encapsulamento do framing TMP já usado pelo M9, sem modificar aquele transporte.
 
 Os registros ELF64 de `/usr/bin/tmpsvr`, resolvidos pelas relocações, confirmam a lista fixa:
 
@@ -287,20 +269,9 @@ Os callbacks Lua foram inspecionados: `device.lua` linhas originais 3067–3077 
 
 Após ALLOC e token TMP de formato válido, são enviadas as três consultas com `config_version` e `params: {}`. Não existe opção de opcode arbitrário; `0x424F` (inicia análise), `0x4250` (aplica), reinicialização e alterações WLAN são excluídos. São conferidos CRCs de ambas as camadas, tag CCM, canal, limites de memória/quantidade de frames, transação, opcode, fragmentos e prazos. Respostas parciais usam pull da mesma leitura; não repetem a operação. Cada etapa tem prazo próprio limitado, sem renovação a cada fragmento. Uma falha de protocolo/timeout encerra; erros de API ficam separados por consulta.
 
-Validação inclui servidor simulado independente que deriva a chave a partir do transcript PAKE, decifra os pedidos reais, responde com fragmentação TLS/TPAP/TMP e intercala keepalives. Testes cobrem prova inválida sem abertura de canal, integridade CCM, CRC, sequência repetida, correlação TMP, limites, erros de API, omissão de dados privados e bloqueio de comandos de análise/aplicação. Não há acesso ao Deco nos testes. A versão 0.8.0-dev.2, o runtime M9 e as entidades MQTT permanecem inalterados; nenhuma leitura TMP ou otimização física do X50 foi confirmada nesta revisão.
+Validação inclui servidor simulado independente que deriva a chave a partir do transcript PAKE, decifra os pedidos reais, responde com fragmentação TLS/TPAP/TMP e intercala keepalives. Testes cobrem prova inválida sem abertura de canal, integridade CCM, CRC, sequência repetida, correlação TMP, limites, erros de API, omissão de dados privados e bloqueio de comandos de análise/aplicação. Não há acesso ao Deco nos testes.
 
-## X50 — leituras físicas confirmadas e análise ACS preparada
-
-O operador executou a revisão 4 do commit `d7d5995867e982759fd6702a07b1182bc7d731b2` no HA do cliente. As três capturas de 15/11/2026 registram `readonly_verified`, `stage: complete`, `tmp_session_verified: true` e as três leituras disponíveis com API 0. Foram seis mensagens e 976 bytes de aplicação enviados, quatro frames de canal recebidos, em 2,114 segundos. Cadeia do fabricante, impressão individual e prova mútua continuaram verificadas. A leitura TMP física resolve a pendência da seção anterior; `optimization: not_tested` continua correto.
-
-Dados sanitizados retornados:
-
-- Modo `Router`.
-- Dois nós X50, ambos com `hardware: 1.30` e `firmware: 1.8.4 Build 26051413 Rel. 27460`; papéis `master` e `slave`.
-- `band2_4`: `radio.htmode: HT40`, `backhaul.channel: 10`.
-- `band5_1`: `radio.htmode: HT80`, `backhaul.channel: 36`.
-
-A revisão de hardware agora vem do inventário autenticado e corresponde à página oficial V1.30 do firmware examinado. Ela difere da etiqueta V1.0 anteriormente atribuída pelo operador à mesma unidade; não se conclui equivalência entre revisões nem se sobrescreve essa evidência anterior. Os números de canal vieram apenas de `backhaul`. Não há número de canal `host`/`radio` no relatório recebido e eles não são promovidos a tais campos.
+## X50 — análise ACS
 
 A revisão 5 acrescenta `--scan-only` para o próximo teste, sem mudar o app nem exigir rebuild. A base estática continua sendo a imagem oficial X50 1.8.4: o registro `0x1c780` de `tmpsvr` aponta `0x424F` para `admin.mobile_app.network_optimize`, formulário `acs_optimize`, operação `read`. No controlador dessa imagem, o callback tem metadados de linhas 197–286; sua função auxiliar (91–176) chama `Wifi:get_best_channel_result(true)`, persiste a recomendação e atualiza `scan_count`. Embora o nome da operação seja `read`, essa chamada pode iniciar uma análise ativa. O callback `write`/opcode `0x4250` é separado e não foi habilitado no diagnóstico.
 
@@ -310,13 +281,9 @@ O diagnóstico só habilita a análise após autenticação com certificado fixa
 
 Depois da resposta, faz uma leitura WLAN para comparação com a anterior. A comparação usa exclusivamente canais numéricos da mesma banda e seção, registra escopos comparados e distingue cobertura completa, parcial ou indisponível. Falha dessa observação não apaga a resposta de análise nem vira sucesso geral. Mudança observada não implica que a sonda aplicou configuração; `apply_command_sent` permanece falso, `optimization` permanece `not_tested` e nenhum opcode de aplicação, reinicialização ou escrita WLAN é permitido.
 
-Os testes simulados acrescentam a forma efetivamente recebida do X50 (hardware 1.30 e canais apenas em backhaul), recomendação positiva/negativa, perfil divergente, leituras prévias recusadas, API/JSON inválidos, envio e resposta interrompidos sem repetição, conservação de resposta após falha posterior, comparação por seção e entrada oculta. A lista de operações anterior continua bloqueando ACS em `--read-info`; o novo modo habilita apenas a análise, não aplicação. Validação física da análise e aplicação no X50 ainda pendentes. O runtime M9, sua otimização validada e as entidades MQTT permanecem iguais.
+Os testes simulados incluem o perfil X50 (hardware 1.30 e canais apenas em backhaul), recomendação positiva/negativa, perfil divergente, leituras prévias recusadas, API/JSON inválidos, envio e resposta interrompidos sem repetição, conservação de resposta após falha posterior, comparação por seção e entrada oculta. A lista de operações continua bloqueando ACS em `--read-info`; `--scan-only` habilita apenas a análise, não aplicação de canais.
 
-## X50 — recomendação ACS física confirmada e aplicação piloto preparada
-
-O operador forneceu o JSON da revisão 5 do commit `4b420ce035da4a28acafd64ff8ab0958602e34c2`, executada no HA do cliente. O resultado foi `scan_response_received`, API 0, `need_optimize: true`, `optimize_item.channel: true`, estimativa de aplicação de 20 segundos e resposta em 13,414 segundos. O conjunto levou 15,049 segundos: oito mensagens, 1216 bytes enviados e seis frames de canal recebidos. TLS, impressão individual, autenticação e sessão TMP continuaram verificados.
-
-A leitura manteve dois X50 1.30/1.8.4 Build 26051413 Rel. 27460, principal Router, canais de backhaul 10/36 e larguras radio HT40/HT80. A comparação das mesmas seções antes/depois foi completa e sem mudança numérica. `apply_command_sent: false` e `optimization: not_tested` confirmam o escopo do teste. `fresh_scan_confirmed: false`/`result_may_be_cached: true` continuam ressalvas do diagnóstico; 13,414 segundos não demonstram medição nova. Essa evidência valida transporte e contrato da recomendação ACS no X50 observado, ainda sem aplicação.
+## X50 — aplicação e recuperação
 
 A revisão 6 prepara aplicação sob demanda com o mesmo firmware oficial já analisado. O registro `0x1c7a8` de `tmpsvr` mapeia `0x4250` para `acs_optimize/write`. A inspeção do callback Lua (metadados de linhas 288–321) mostra leitura da recomendação persistida pelo firmware, marca de operação em andamento, chamada da rotina de aplicação, atualização do horário/contador e remoção da recomendação após sucesso. Não recebe uma lista arbitrária de canais nos parâmetros. Por isso o diagnóstico envia `params: {}` somente após um pedido de análise reconhecido e positivo, no mesmo fluxo autenticado, e uma referência WLAN disponível. O programa não carrega uma recomendação de um arquivo antigo como autorização para escrever.
 
@@ -324,15 +291,11 @@ A aplicação tem habilitação própria, separada da análise, e reserva duráv
 
 Após a tentativa, inclusive com resposta perdida ou recusada, o diagnóstico observa sem reenviar. Aguarda 30 segundos, abre sessões autenticadas exclusivamente de leitura, exige três observações consecutivas iguais cobrindo os parâmetros da referência, e limita a seis observações/janela de 120 segundos. Mantém número de canal e largura nas seções originais. Falha transitória reinicia a contagem; recusa de credenciais, identidade divergente ou erro de integridade/protocolo interrompe a verificação. `--verify-only` recupera apenas essa observação a partir do registro; não tem acesso a um leitor com comandos ACS habilitados. Aceite, estabilidade, mudança e melhoria de qualidade permanecem conceitos separados; uma observação não recupera um ACK perdido.
 
-Testes simulados verificam a reserva gravada antes do comando real cifrado, uma única aplicação e sessões posteriores sem ACS, resposta positiva/negativa/malformada, parâmetros sem mudança, canais e larguras alterados, timeout, interrupção, recuperação só de leitura, bloqueio de concorrência/repetição/outro ID, intervalo, registro inválido e falhas de armazenamento antes/depois do envio. Os temporários dos testes ficam em `/tmp`, fora de OneDrive/iCloud. Esta revisão não altera a imagem, versão, entidades MQTT ou transporte M9 do app. Aplicação física do X50 e incorporação TPAP ao runtime seguem pendentes.
+Testes simulados verificam a reserva gravada antes do comando real cifrado, uma única aplicação e sessões posteriores sem ACS, resposta positiva/negativa/malformada, parâmetros sem mudança, canais e larguras alterados, timeout, interrupção, recuperação só de leitura, bloqueio de concorrência/repetição/outro ID, intervalo, registro inválido e falhas de armazenamento antes/depois do envio. Os temporários dos testes ficam em `/tmp`, fora de OneDrive/iCloud. O mesmo protocolo é compartilhado com o runtime X50 do app desde a versão 0.9.
 
-## X50 — aplicação física confirmada e incorporação ao app 0.9
+## X50 — incorporação ao app 0.9
 
-Relatório fornecido pelo operador em 15/11/2026: diagnóstico revisão 6, pedido `x50-opt-001`, perfil X50 hardware 1.30 / firmware 1.8.4 Build 26051413 Rel. 27460, Router, dois nós. A conta pertence à instalação do cliente, separada do piloto M9 residencial. Certificado e prova mútua conferidos; nenhuma credencial foi incluída no relatório.
-
-A análise respondeu API 0, recomendação positiva, em 13,579 s. Houve uma tentativa de aplicação, aceite API 0 em 16,543 s; após 30 s, três leituras consecutivas estáveis, nenhuma falha. Conclusão `acknowledged_with_channel_change`, duração total 85,999 s. A mudança observada foi `band2_4.backhaul.channel` de 10 para 4; `band5_1.backhaul.channel` permaneceu 36, larguras radio HT40/HT80 mantidas. Não foram reportados canais numéricos host/radio nem medidas de interferência, velocidade ou disponibilidade das câmeras. A origem nova/cache da recomendação continua não confirmada.
-
-A 0.9 incorpora o mesmo cliente ao app, com seleção explícita M9/X50, journal separado, reserva de autenticação, controle MQTT e projeção de backhaul. O código M9 de protocolo/aplicação é preservado. O diagnóstico não é importado automaticamente para o histórico do app; uma tentativa incerta deve ser resolvida no registro de origem. Aplicação física do diagnóstico está confirmada; instalação da nova imagem e o fluxo X50 completo pelo Home Assistant ainda dependem do teste no cliente.
+A 0.9 incorpora o transporte TPAP/TLS com seleção explícita M9/X50, histórico separado, reserva de autenticação, controle MQTT e projeção de backhaul. O histórico do diagnóstico não é importado automaticamente; uma tentativa incerta deve ser resolvida no registro de origem.
 
 ## Controle de visitantes M9 — 15/11/2026
 

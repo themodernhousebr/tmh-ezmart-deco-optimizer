@@ -2,7 +2,7 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.10.0-dev.1 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Otimização confirmada nos dois pilotos, inclusive pelos botões MQTT na 0.9. A 0.10 acrescenta controle opcional de visitantes no M9; validação física desse novo recurso ainda pendente.
+**0.10.0-dev.1 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. A 0.10 acrescenta controle opcional de visitantes no M9; validação física desse novo recurso ainda pendente.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
@@ -32,10 +32,10 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 como roteador principal, hardware informado pelo inventário 1.30, DHCP ativo, firmware 1.8.4 Build 26051413 Rel. 27460 | TLS/30001, login, leituras, análise e aplicação confirmados fisicamente: backhaul 2,4 GHz de 10 para 4, aceite API 0 e três leituras estáveis. Transporte TPAP e botão MQTT validados no app 0.9: pedido aceito e backhaul 2,4 GHz de 4 para 5 |
+| X50 principal, hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, modo Router | Monitoramento e otimização sob demanda por TPAP/TLS; sensores de canal representam backhaul. Ações bloqueadas fora desse perfil |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
-O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes exatos: o inventário autenticado do cliente informou hardware **1.30** para os dois X50, apesar da etiqueta V1.0 anteriormente atribuída à unidade. Isso não implica intercambialidade de revisões. O nome `m9_acs` não é uma promessa de compatibilidade com X50. No X50, selecione `deco_model: x50` e informe seu certificado e conta proprietária. O app usa TPAP/TLS para monitoramento e ações; não tenta SSH nem HTTPS como alternativa. Firmware/hardware/modo diferentes permitem leitura, mas bloqueiam análise e aplicação até validação específica.
+O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes oficiais analisados. Não se presume equivalência entre revisões de hardware. O nome `m9_acs` não é uma promessa de compatibilidade com X50. No X50, selecione `deco_model: x50` e informe seu certificado e conta proprietária. O app usa TPAP/TLS para monitoramento e ações; não tenta SSH nem HTTPS como alternativa. Firmware/hardware/modo diferentes permitem leitura, mas bloqueiam análise e aplicação até validação específica.
 
 Na 0.8.0-dev.1, o piloto confirmou criação das entidades e envio/conclusão de um pedido de verificação pelo Home Assistant. A revisão dev.2 acrescenta avisos de falha MQTT, empacotamento e exemplos; ainda não foi instalada no HAOS do piloto. Aceite do comando e leituras estáveis não comprovam melhora de interferência, velocidade ou recuperação de uma câmera.
 
@@ -69,11 +69,11 @@ python3 /tmp/x50_tls_probe.py 192.168.68.1 \
   --pake-parameters
 ```
 
-Substitua a impressão pelo `certificate_sha256` da primeira execução nesse X50. O Terminal pede o **e-mail da conta proprietária desse equipamento**, com entrada oculta. Não use a conta de outra instalação; o M9 residencial e o X50 do cliente são ambientes independentes. O e-mail não é argumento de linha de comando, não é salvo e não aparece no relatório; seu SHA-256 é enviado dentro da conexão TLS validada e fixada ao certificado informado.
+Substitua a impressão pelo `certificate_sha256` da primeira execução nesse X50. O Terminal pede o **e-mail da conta proprietária desse equipamento**, com entrada oculta. Use a conta proprietária da rede que será configurada. O e-mail não é argumento de linha de comando, não é salvo e não aparece no relatório; seu SHA-256 é enviado dentro da conexão TLS validada e fixada ao certificado informado.
 
-Esse modo inicia apenas a negociação `pake_register` para uma conta existente e informa os algoritmos e tamanhos recebidos. Não cria conta, pede senha, envia prova de senha, abre canal TMP, solicita análise ou aplica canais. Há somente uma tentativa, com validação de enquadramento, sequência, checksum, tamanho e prazo. `pake_parameters_received` **não confirma login nem a existência da conta**: o firmware pode gerar parâmetros fictícios para usuário desconhecido. O relatório omite salts, nonces, pontos criptográficos, tokens e hashes de conta. O operador confirmou essa negociação no X50 do cliente: API 0, suíte 1, AES-128-CCM, 100.000 iterações, sem `extra_crypt`, com certificado correspondente ao primeiro teste.
+Esse modo inicia apenas a negociação `pake_register` para uma conta existente e informa os algoritmos e tamanhos recebidos. Não cria conta, pede senha, envia prova de senha, abre canal TMP, solicita análise ou aplica canais. Há somente uma tentativa, com validação de enquadramento, sequência, checksum, tamanho e prazo. `pake_parameters_received` **não confirma login nem a existência da conta**: o firmware pode gerar parâmetros fictícios para usuário desconhecido. O relatório omite salts, nonces, pontos criptográficos, tokens e hashes de conta.
 
-A revisão 3 acrescentou o teste de **um login completo**, confirmado no X50 do cliente em 15/11/2026 (0,388 segundo, duas mensagens e 540 bytes enviados):
+O diagnóstico também permite verificar **um login completo**:
 
 ```sh
 apk add --no-cache python3 py3-pycryptodome
@@ -82,7 +82,7 @@ python3 /tmp/x50_tls_probe.py 192.168.68.1 \
   --timeout 20 --authenticate
 ```
 
-O e-mail e a senha **da conta do cliente** são digitados com entrada oculta no Terminal. Não coloque credenciais no comando nem compartilhe a senha. O diagnóstico preserva maiúsculas/minúsculas do e-mail e espaços da senha, não grava credenciais e não usa as do M9. A prova SPAKE2+ usa a derivação identificada no firmware, pontos P-256 da biblioteca PyCryptodome, aleatoriedade nova e confirmação criptográfica de ambos os lados. Só aceita o perfil observado: suíte 1, AES-128-CCM e ausência de `extra_crypt`; perfis diferentes encerram antes de enviar a prova. A conexão continua exigindo a CA do fabricante e a impressão individual conhecida.
+O e-mail e a senha **da conta proprietária da rede** são digitados com entrada oculta no Terminal. Não coloque credenciais no comando nem compartilhe a senha. O diagnóstico preserva maiúsculas/minúsculas do e-mail e espaços da senha, não grava credenciais e não usa as do M9. A prova SPAKE2+ usa a derivação identificada no firmware, pontos P-256 da biblioteca PyCryptodome, aleatoriedade nova e confirmação criptográfica de ambos os lados. Só aceita o perfil observado: suíte 1, AES-128-CCM e ausência de `extra_crypt`; perfis diferentes encerram antes de enviar a prova. A conexão continua exigindo a CA do fabricante e a impressão individual conhecida.
 
 Sucesso exige `state: authentication_verified`, `authentication: verified`, `account_credentials_verified: true` e `server_proof_verified: true`. Uma resposta API 0 sem prova válida nunca basta. `account_role_verified: false` significa que as permissões de proprietário/administrador não foram consultadas; não indica falha da senha. O token recebido é conferido apenas quanto à presença/formato e não aparece no relatório. `authentication_rejected` conserva apenas o código de erro, sem concluir que a causa é necessariamente senha incorreta. Não há nova tentativa automática. Após uma recusa, confira a conta e o resultado antes de repetir.
 
@@ -94,9 +94,7 @@ python3 /tmp/x50_tls_probe.py 192.168.68.1 \
   --timeout 20 --read-info
 ```
 
-Use as credenciais do cliente nos mesmos prompts ocultos. O prazo é de 20 segundos para o login e para cada uma das quatro operações TMP (alocação e três leituras), até aproximadamente 100 segundos no conjunto. Não há repetição automática. O relatório mantém `authentication: verified` se o login passou, mesmo que uma etapa posterior falhe. `tmp_session_verified: true` confirma a abertura TMP; `readonly_verified` exige as três respostas reconhecidas. `readonly_incomplete` significa que alguma leitura foi recusada ou apresentou formato desconhecido. `stage` identifica onde ocorreu uma eventual falha de transporte. Os canais são separados entre `radio`, `host` e `backhaul`, conforme disponíveis, sem confundir configuração e leitura do rádio.
-
-O operador confirmou `readonly_verified` no X50 do cliente em 15/11/2026: 2,114 segundos, modo Router, dois X50 hardware 1.30 com firmware 1.8.4, um principal e um secundário. Os números 10 e 36 vieram de `backhaul` nas bandas 2,4 e 5 GHz; `radio` retornou apenas HT40/HT80. Não são leituras numéricas de canal da rede principal dos clientes Wi-Fi.
+Use as credenciais da rede nos mesmos prompts ocultos. O prazo é de 20 segundos para o login e para cada uma das quatro operações TMP (alocação e três leituras), até aproximadamente 100 segundos no conjunto. Não há repetição automática. O relatório mantém `authentication: verified` se o login passou, mesmo que uma etapa posterior falhe. `tmp_session_verified: true` confirma a abertura TMP; `readonly_verified` exige as três respostas reconhecidas. `readonly_incomplete` significa que alguma leitura foi recusada ou apresentou formato desconhecido. `stage` identifica onde ocorreu uma eventual falha de transporte. Os canais são separados entre `radio`, `host` e `backhaul`, conforme disponíveis, sem confundir configuração e leitura do rádio.
 
 O relatório omite senhas Wi-Fi, SSIDs, MACs, nomes de cômodos, IDs e tokens. Os modos acima não buscam interferência nem aplicam canais; `optimization` continua `not_tested`. O login pode estabelecer uma sessão e uma tentativa recusada pode contar para o bloqueio do equipamento. O diagnóstico não integra o runtime do app e **não exige rebuild**. A versão, transporte M9 e entidades MQTT permanecem iguais.
 
@@ -116,13 +114,11 @@ Essa chamada pode iniciar a busca de interferência no equipamento; não é uma 
 
 `reads.channels` contém a observação anterior; `channels_after_scan` contém a posterior. `channel_comparison` compara somente campos numéricos na mesma banda e seção (`radio`, `host` ou `backhaul`), identificando comparação completa, parcial ou indisponível. Mudança observada não é atribuída ao diagnóstico nem prova melhora. Se a observação posterior falhar, a resposta de análise recebida fica preservada em `scan`, mas o resultado geral não declara o diagnóstico completo. Um perfil diferente retorna `scan_target_unsupported` antes do pedido; uma leitura prévia incompleta retorna `scan_preflight_failed`.
 
-O operador confirmou a resposta física dessa análise em 15/11/2026: API 0, `need_optimize: true`, `optimize_item.channel: true`, 13,414 segundos de resposta e 15,049 segundos no conjunto. Os valores de backhaul permaneceram 10 e 36; nenhum comando de aplicação foi enviado. Isso valida a chamada e o formato da recomendação, sem comprovar frescor da medição.
-
 ### Aplicação piloto no X50 e recuperação
 
 A revisão 6 acrescenta `--optimize` e `--verify-only`, ainda independentes do app. A aplicação só é habilitada em `--optimize`, após o mesmo perfil de principal ser conferido, um novo pedido de análise retornar recomendação positiva e a leitura de canais posterior estar completa. Não reutiliza como autorização um JSON antigo de análise. `optimization_not_needed` significa que essa execução não aplicou nada.
 
-Execute uma vez no HA do cliente, com a versão atual do diagnóstico em `/tmp`:
+Execute uma vez no Home Assistant conectado à mesma rede do X50, com o diagnóstico atual em `/tmp`:
 
 ```sh
 python3 /tmp/x50_tls_probe.py 192.168.68.1 \
@@ -157,8 +153,6 @@ Interpretação do relatório:
 - `unconfirmed_*`, `verification_incomplete`, `apply_rejected` ou erro de registro: não considerar otimização confirmada; nenhuma reaplicação automática ocorre.
 
 `elapsed_seconds` mede a ação completa, incluindo a verificação; `request_session_seconds` e os contadores de mensagens/bytes referem-se à sessão inicial. Uma verificação posterior preserva os horários da ação original e registra `last_verified_at`/`last_verification_seconds`. Os dados de WLAN continuam separados por `radio`, `host` e `backhaul`, sem atribuir leituras ausentes à rede principal.
-
-O teste físico da revisão 6 confirmou `acknowledged_with_channel_change` em 85,999 segundos: API 0 na aplicação, três leituras estáveis, nenhuma falha, backhaul 2,4 GHz de 10 para 4 e 5 GHz mantido em 36. As larguras HT40/HT80 foram mantidas. Essa evidência não mede ganho de desempenho nem recuperação de câmeras. A versão 0.9 reutiliza o mesmo código no app; o teste físico de seu fluxo MQTT ainda está pendente.
 
 ## Automações e acompanhamento
 

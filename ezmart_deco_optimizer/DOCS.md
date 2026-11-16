@@ -53,7 +53,7 @@ Relatórios filtrados ficam em `/data/guest_wifi_report.json` e `/data/guest_wif
 
 A instalação nova tem 10 campos principais. Não é necessário preencher os campos do outro modelo, nem definir IDs e prazos. Opções antigas permanecem aceitas; configurações já salvas não são removidas automaticamente. Os campos opcionais seguem o [schema do Supervisor](https://developers.home-assistant.io/docs/apps/configuration/#options--schema).
 
-| Campo | M9 Plus V2 | X50 do piloto |
+| Campo | M9 Plus V2 | X50 1.30 / 1.8.4 Router |
 |---|---|---|
 | `deco_model` | `m9_plus` (padrão; preserva instalação antiga) | `x50` |
 | `host` | IP do M9 principal | IP do X50 principal |
@@ -75,11 +75,11 @@ O padrão interno do monitoramento é 30 s no M9 e mínimo 60 s no X50. Para o X
 
 1. Instalar/atualizar o pacote 0.9 uma vez. Selecionar `x50`, IP, conta desta rede e certificado conferido. Ativar MQTT; manter `mqtt_commands_enabled: false` durante a conferência inicial.
 2. Salvar e iniciar. Conferir log X50 TPAP/TLS, inventário, modo Router e sensores **Canal backhaul**. Não devem aparecer análise/aplicação apenas por iniciar ou reconectar MQTT.
-3. A aplicação física do diagnóstico já foi confirmada; não é necessário repetir apenas para produzir outra mudança. Para habilitar futuras ações, ativar `tmp_enabled` e `mqtt_commands_enabled`, salvar e reiniciar o app. A automação pode chamar o mesmo botão Otimizar se necessário usado no M9.
+3. Para habilitar ações sob demanda, ativar `tmp_enabled` e `mqtt_commands_enabled`, salvar e reiniciar o app. A automação pode chamar o mesmo botão Otimizar se necessário usado no M9.
 4. Aguardar pelo menos 30 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
 5. Após uma necessidade real, conferir aceite API 0, verificação stable e ID do novo pedido. Verificar última aplicação observa somente a tentativa registrada **neste app**; antes da primeira aplicação pelo app, fica indisponível.
 
-O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 30 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; não há número de canal host/radio no piloto, nem consulta de CPU/memória pelo novo transporte.
+O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 30 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio nem consulta de CPU/memória pelo transporte TPAP.
 
 A seção seguinte documenta exclusivamente o modo manual M9, preservado para instalações anteriores.
 

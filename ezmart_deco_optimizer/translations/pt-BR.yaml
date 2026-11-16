@@ -88,7 +88,7 @@ configuration:
     name: Avançado — prazo da conexão Deco
   tmp_email:
     name: E-mail da conta proprietária Deco
-    description: Use a conta desta instalação; não compartilhe a conta entre sua casa e o cliente.
+    description: Use a conta proprietária da rede que será configurada.
   tmp_password:
     name: Senha da conta proprietária Deco
   tmp_host_key_sha256:

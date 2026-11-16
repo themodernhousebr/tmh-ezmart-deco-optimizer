@@ -12,7 +12,7 @@
 ## 0.9.0-dev.1
 
 - Incorpora ao app o transporte X50 TPAP/TLS com certificado fixado e autenticação mútua, reutilizando o cliente do diagnóstico físico. Seleção explícita por modelo; transporte e histórico M9 preservados.
-- X50 validado fisicamente no perfil 1.30 / 1.8.4 Build 26051413 Rel. 27460 / Router: aplicação aceita, backhaul 2,4 GHz 10→4, três leituras estáveis, sem falhas, 85,999 s. Fluxo integrado X50/MQTT ainda requer teste no HA do cliente.
+- Perfil de ações X50 restrito a hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460 e modo Router; verificação por canais de backhaul.
 - Mesmos botões e IDs de entidades; sensores X50 rotulados como backhaul, sem inventar dados de CPU/memória ou terceira banda. Poll X50 mínimo 60 s, apenas leitura.
 - Pedidos X50 explícitos, mínimo 30 minutos, reserva durável, verificação sem reaplicação e pausa persistida antes de toda autenticação. Parada durante espera preserva o resultado e não reenvia aplicação.
 - Configuração nova com 10 campos principais; campos manuais, prazos e diagnósticos opcionais. Preserva valores salvos e o modo manual M9. Nenhuma ação X50 na inicialização.
