@@ -1,6 +1,6 @@
 # EZmart Deco Optimizer — 0.11.0-dev.1
 
-Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. Outros perfis X50 e M5 principal não estão validados.
+Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. A 0.11.0-dev.8 acrescenta piloto X50 hardware 1.0, firmware 1.11.1 Build 26081714 Rel. 32981, Router, após comparação estática das rotinas e testes simulados; confirmação física das ações pendente. Outros perfis X50 e M5 principal não estão validados.
 
 Esta versão reúne análise, aplicação condicional, verificação e recuperação de resultado incerto. A aplicação pode interromper temporariamente o Wi-Fi. Não há otimização automática por intervalo ou ao surgir interferência. O padrão continua `tmp_action: read` e `tmp_enabled: false`.
 
@@ -54,7 +54,7 @@ Relatórios filtrados ficam em `/data/guest_wifi_report.json` e `/data/guest_wif
 
 A instalação nova tem 10 campos principais. Não é necessário preencher os campos do outro modelo, nem definir IDs e prazos. Opções antigas permanecem aceitas; configurações já salvas não são removidas automaticamente. Os campos opcionais seguem o [schema do Supervisor](https://developers.home-assistant.io/docs/apps/configuration/#options--schema).
 
-| Campo | M9 Plus V2 | X50 1.30 / 1.8.4 Router |
+| Campo | M9 Plus V2 | X50 Router nos perfis abaixo |
 |---|---|---|
 | `deco_model` | `m9_plus` (padrão; preserva instalação antiga) | `x50` |
 | `host` | IP do M9 principal | IP do X50 principal |
@@ -223,7 +223,14 @@ Visitantes exibe o último estado confirmado mesmo durante falha de leitura. Os 
 
 ## Wi-Fi de visitantes no X50 — piloto 0.11
 
-Implementação inicialmente restrita ao X50 principal hardware **1.30**, firmware **1.8.4 Build 26051413 Rel. 27460**, em **Router**. Testes de protocolo concluídos; ligar/desligar no equipamento físico ainda precisa ser validado. Não habilitar em outros perfis.
+Perfis exatos de principal em **Router**:
+
+| Hardware | Firmware | Estado |
+|---|---|---|
+| 1.30 | 1.8.4 Build 26051413 Rel. 27460 | Visitantes validado em equipamento |
+| 1.0 | 1.11.1 Build 26081714 Rel. 32981 | Piloto 0.11.0-dev.8: ações aguardam validação física |
+
+O piloto 1.11.1 usa as mesmas rotinas ACS e funções de Wi-Fi verificadas offline no firmware oficial. Não permite outras combinações de revisão e firmware. Otimização permanece sob demanda, condicionada à recomendação positiva, reserva persistente e verificação posterior; nenhuma ação é iniciada por atualização ou consulta periódica.
 
 Atualize o app existente pela loja, preserve IP, conta proprietária, senha e `x50_certificate_sha256` validado. Configure `deco_model: x50`, `mqtt_enabled: true`, `mqtt_commands_enabled: true`, `tmp_enabled: true` e `guest_control_enabled: true`. Salve e reinicie apenas o app. O interruptor `switch.ezmart_deco_visitantes` usa a rede de visitantes já configurada no Deco; as entidades anteriores mantêm suas identidades. Não use a chave SSH M9 para o certificado X50.
 
@@ -238,3 +245,7 @@ Para validar, desative temporariamente automações que comandem o EZmart e conf
 `x50_certificate_mode: automatic` é o padrão, inclusive quando a opção não existe em instalações antigas. Em instalação nova deixe `x50_certificate_sha256` vazio: antes de qualquer login, o app obtém o certificado por TLS, valida a cadeia do fabricante e o modelo X50, e salva a identidade em `/data/x50_certificate_state.json`. Depois usa essa identidade para todas as conexões autenticadas. Falha na obtenção aguarda 60 segundos, sem enviar credenciais ou comandos.
 
 Certificados já preenchidos continuam tendo prioridade, preservando os vínculos de relatórios e intervalos de proteção. `pinned` exige o SHA-256 manual. O certificado salvo não é substituído automaticamente se o equipamento apresentar outro: a divergência bloqueia a conexão. IP fixo não é prova de identidade. Esta opção não altera a confiança SSH do M9 e não habilita suporte ao M5.
+
+### Validação do piloto X50 1.0 / 1.11.1
+
+Preserve certificado, credenciais e históricos. Use `tmp_timeout_seconds: 30` e `poll_seconds: 300`. Desative automações que acionem o app durante os testes. Primeiro conclua um ciclo de leitura; depois teste uma mudança de visitantes, confirme no app Deco, aguarde 60 segundos após a conclusão e teste a inversa. Por último, solicite uma única otimização pelo botão: ela pode interromper temporariamente o Wi-Fi se houver recomendação positiva e aplicação. Se a recomendação for negativa, somente a análise fica validada. Espere o resultado e a verificação antes de outro pedido; não altere IDs nem apague históricos para liberar tentativas.

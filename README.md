@@ -2,11 +2,11 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.11.0-dev.1 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; a 0.11 prepara o piloto X50, ainda pendente de validação física.
+**0.11.0-dev.8 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
-O piloto opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). A 0.11 acrescenta o mesmo interruptor no X50 1.30 / 1.8.4 Router, mediante habilitação explícita; validação física pendente.
+O piloto opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). A 0.11 acrescenta o mesmo interruptor no X50 1.30 / 1.8.4 Router, mediante habilitação explícita. O perfil 1.0 / 1.11.1 também está disponível como piloto.
 
 ## Instalar pela loja do Home Assistant
 
@@ -32,7 +32,8 @@ O app instalado pelo GitHub terá um identificador diferente de `local_ezmart_de
 |---|---|
 | M9 Plus V2, AP, firmware 1.9.1 Build 20250612 Rel. 45690 | Aplicação aceita e mudança 149 → 157 na banda 5_2; três leituras posteriores iguais e monitoramento contínuo no piloto |
 | X50 como secundário na mesh do M9 | Aparece no inventário; isso não valida a aplicação quando o X50 é o principal |
-| X50 principal, hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, modo Router | Monitoramento e otimização sob demanda por TPAP/TLS; sensores de canal representam backhaul. Ações bloqueadas fora desse perfil |
+| X50 principal, hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, modo Router | Monitoramento e otimização sob demanda por TPAP/TLS; sensores de canal representam backhaul. Ações exigem um dos perfis exatos documentados |
+| X50 principal, hardware 1.0, firmware 1.11.1 Build 26081714 Rel. 32981, modo Router | Piloto de otimização e visitantes na 0.11.0-dev.8; monitoramento confirmado, ações com testes simulados e comparação estática, aguardando validação física |
 | M5 ou outros modelos como principal | Não validados para aplicação |
 
 O protocolo de aplicação atual foi identificado no firmware do M9 V2. As imagens X50 1.8.0 e 1.8.4 mantêm o mesmo mapeamento de análise/aplicação, mas isso não garante o mesmo transporte ou autenticação. Na 1.8.4 examinada, TPAP substitui o SSH quando a compatibilidade antiga está desativada; apenas mudar a porta não adapta o cliente. A [pesquisa](RESEARCH.md) registra os pacotes oficiais analisados. Não se presume equivalência entre revisões de hardware. O nome `m9_acs` não é uma promessa de compatibilidade com X50. No X50, selecione `deco_model: x50` e informe seu certificado e conta proprietária. O app usa TPAP/TLS para monitoramento e ações; não tenta SSH nem HTTPS como alternativa. Firmware/hardware/modo diferentes permitem leitura, mas bloqueiam análise e aplicação até validação específica.

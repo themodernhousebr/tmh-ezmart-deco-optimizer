@@ -679,12 +679,26 @@ def compare_channels(before, after):
             "observed_channels_changed": bool(changes) if common else None}
 
 
+X50_PROFILES = frozenset({
+    ('1.30', '1.8.4 Build 26051413 Rel. 27460'),
+    ('1.0', '1.11.1 Build 26081714 Rel. 32981'),
+})
+
+
+def supported_profile(model, hardware, firmware, mode):
+    # Exact pairs only: do not infer equivalence across revisions or later builds.
+    return (model == 'X50' and mode == 'Router' and isinstance(hardware, str)
+            and isinstance(firmware, str) and (hardware, firmware) in X50_PROFILES)
+
+
 def supported_target(result):
     reads = result["reads"]
     masters = [node for node in reads["devices"]["data"]["nodes"] if node.get("role") == "master"]
-    return (reads["mode"]["data"].get("mode") == "Router" and len(masters) == 1
-            and masters[0].get("model") == "X50" and masters[0].get("hardware") == "1.30"
-            and masters[0].get("firmware") == "1.8.4 Build 26051413 Rel. 27460")
+    if len(masters) != 1:
+        return False
+    node = masters[0]
+    return supported_profile(node.get('model'), node.get('hardware'), node.get('firmware'),
+                             reads['mode']['data'].get('mode'))
 
 
 def scan_information(reader, timeout, scan_timeout, result):
@@ -1178,7 +1192,7 @@ def main():
     modes.add_argument("--read-info", action="store_true",
                        help="Login e leitura única de modo, canais e inventário; sem varredura")
     modes.add_argument("--scan-only", action="store_true",
-                       help="Uma análise de interferência no X50 1.30/1.8.4 roteador; nunca aplica canais")
+                       help="Uma análise de interferência nos perfis X50 Router suportados; nunca aplica canais")
     modes.add_argument("--optimize", action="store_true",
                        help="Analisar e aplicar uma vez se recomendado; pode interromper o Wi-Fi")
     modes.add_argument("--verify-only", action="store_true",

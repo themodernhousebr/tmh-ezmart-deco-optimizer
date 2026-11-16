@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0-dev.8
+
+- Piloto X50 principal hardware 1.0, firmware exato 1.11.1 Build 26081714 Rel. 32981, Router: otimização sob demanda e visitantes. Monitoramento já observado; confirmação física das ações pendente.
+- Comparação offline do firmware oficial confirmou controlador ACS idêntico, mesmas funções de leitura/escrita Wi-Fi e aplicação de canais e mesmos registros TMP. Testes simulados cobrem aplicação única, observação posterior, recomendação negativa, visitantes e bloqueio de combinações não suportadas.
+- Preserva perfil 1.30/1.8.4, transporte M9, identidades, certificados, históricos, intervalos e bloqueio após resultado incerto. Nenhuma ação automática adicionada.
+
 ## 0.11.0-dev.7
 
 - Falha de consulta periódica X50 após autenticação confirmada respeita o intervalo de consultas, em vez de aplicar pausa de autenticação de 15 minutos.

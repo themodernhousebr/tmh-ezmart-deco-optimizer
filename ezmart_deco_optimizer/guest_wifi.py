@@ -111,9 +111,9 @@ def supported_profile(reader, model="m9_plus"):
         return False
     master = masters[0]
     if model == 'x50':
-        return (master.get('device_model') == 'X50' and master.get('hardware_ver') == '1.30'
-                and master.get('software_ver') == '1.8.4 Build 26051413 Rel. 27460'
-                and mode == 'Router')
+        import x50_tpap
+        return x50_tpap.supported_profile(master.get('device_model'), master.get('hardware_ver'),
+                                          master.get('software_ver'), mode)
     return (master.get('device_model') == 'M9Plus'
             and re.fullmatch(r'2(?:\.[0-9]{1,2}){1,2}', str(master.get('hardware_ver', ''))) is not None
             and master.get('software_ver') == FIRMWARE and mode in ('AP', 'FAP'))

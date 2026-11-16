@@ -43,6 +43,26 @@ class X50GuestTests(unittest.TestCase):
             f.monitor(raw=f.raw)
         self.assertEqual(len(f.write_calls), 2)
 
+    def test_111_enable_disable_preserves_existing_settings(self):
+        f = self.fx
+        f.profile['device_list'][0].update(hardware_ver='1.0',
+            software_ver='1.11.1 Build 26081714 Rel. 32981')
+        self.test_enable_disable_and_privacy()
+
+    def test_111_encrypted_guest_session(self):
+        self.fx.profile['device_list'][0].update(hardware_ver='1.0',
+            software_ver='1.11.1 Build 26081714 Rel. 32981')
+        self.test_encrypted_guest_write_and_readbacks_on_one_authenticated_session()
+
+    def test_crossed_revision_and_firmware_pairs_cannot_write_guest(self):
+        f = self.fx
+        for hw, fw in [('1.30', '1.11.1 Build 26081714 Rel. 32981'),
+                       ('1.0', '1.8.4 Build 26051413 Rel. 27460')]:
+            f.profile['device_list'][0].update(hardware_ver=hw, software_ver=fw)
+            self.assertFalse(guest.supported_profile(f.reader, 'x50'))
+        self.assertEqual(f.execute()['state'], 'guest_profile_not_validated')
+        self.assertEqual(f.write_calls, [])
+
     def test_unsupported_profile_never_writes(self):
         f = self.fx
         for field, value in [('device_model', 'M9Plus'), ('hardware_ver', '2.0'),

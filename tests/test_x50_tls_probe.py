@@ -898,6 +898,19 @@ class ScanProbeTests(unittest.TestCase):
             self.assertFalse(result["scan"]["request_attempted"])
             self.assertNotIn(0x424F, peer.requests)
 
+    def test_exact_profile_pairs_and_router_mode_are_required(self):
+        for hw, fw in probe.X50_PROFILES:
+            self.assertTrue(probe.supported_profile('X50', hw, fw, 'Router'))
+            self.assertFalse(probe.supported_profile('X50', hw, fw, 'AP'))
+        for hw, fw in [('1.30', '1.11.1 Build 26081714 Rel. 32981'),
+                       ('1.0', '1.8.4 Build 26051413 Rel. 27460'),
+                       ('1.0', '1.11.2 Build 26102114 Rel. 32981')]:
+            peer = self.peer()
+            peer.responses[0x400F]['result']['device_list'][0].update(hardware_ver=hw, software_ver=fw)
+            result, _, peer = self.run_peer(peer)
+            self.assertEqual(result['state'], 'scan_target_unsupported')
+            self.assertNotIn(0x424f, peer.requests)
+
     def test_other_primary_profile_is_read_but_not_scanned(self):
         for key, value in (("device_model", "M9Plus"), ("hardware_ver", "1.0"),
                            ("software_ver", "1.8.0"), ("role", "slave")):
@@ -1074,7 +1087,7 @@ class ApplyProbeTests(unittest.TestCase):
         self.clock += seconds
 
     def run_action(self, needed=True, ack=None, fail_apply=False, observed_change=True,
-                   observation_states=None, corrupt_scan=False, **options):
+                   observation_states=None, corrupt_scan=False, profile=None, **options):
         actual_probe = probe.probe
         observations = iter(observation_states or [])
 
@@ -1089,6 +1102,9 @@ class ApplyProbeTests(unittest.TestCase):
                     self.sessions.append([])
                     return {"state": state}
             peer = ScanProbeTests().peer(needed)
+            if profile:
+                for node in peer.responses[0x400F]['result']['device_list']:
+                    node.update(hardware_ver=profile[0], software_ver=profile[1])
             peer.allow_apply = applying
             peer.responses[0x4250] = {"error_code": 0, "result": None} if ack is None else ack
             if corrupt_scan:
@@ -1124,6 +1140,19 @@ class ApplyProbeTests(unittest.TestCase):
             if self.journal.exists():
                 self.assertNotIn(secret, self.journal.read_text())
         return result
+
+    def test_111_profile_applies_once_and_verifies_in_readonly_sessions(self):
+        result = self.run_action(profile=('1.0', '1.11.1 Build 26081714 Rel. 32981'))
+        self.assertEqual(result['state'], 'apply_acknowledged')
+        self.assertEqual(result['verification']['stable_samples'], 3)
+        self.assertEqual(sum(s.count(0x4250) for s in self.sessions), 1)
+        self.assertEqual(sum(s.count(0x424f) for s in self.sessions), 1)
+        self.assertEqual(self.sessions[1:], [[1, 0x40A0, 0x4009, 0x400F]] * 3)
+
+    def test_111_negative_analysis_never_applies(self):
+        result = self.run_action(needed=False, profile=('1.0', '1.11.1 Build 26081714 Rel. 32981'))
+        self.assertEqual(result['state'], 'optimization_not_needed')
+        self.assertNotIn(0x4250, self.sessions[0])
 
     def test_apply_once_with_durable_reservation_then_three_readonly_sessions(self):
         result = self.run_action()
