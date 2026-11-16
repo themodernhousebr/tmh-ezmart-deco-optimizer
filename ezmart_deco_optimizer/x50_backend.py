@@ -9,12 +9,47 @@ import time
 import x50_tpap as protocol
 
 
-def settings(options):
+def certificate_mode(options):
+    mode = options.get('x50_certificate_mode', 'automatic')
+    if mode not in ('automatic', 'pinned'):
+        raise ValueError()
+    return mode
+
+
+def resolve_certificate(options, data, save):
+    """Enroll a vendor-verified certificate once; never silently replace identity."""
+    mode = certificate_mode(options)
+    if options.get('x50_certificate_sha256', '').strip():
+        settings(options)
+        return
+    if mode == 'pinned':
+        raise ValueError('x50_certificate_required')
+    settings(options, allow_missing_pin=True)
+    path = data / 'x50_certificate_state.json'
+    host = str(ipaddress.ip_address(options['host']))
+    if path.exists():
+        stored = json.loads(path.read_text())
+        if stored.get('host') != host or not re.fullmatch('[a-f0-9]{64}', stored.get('sha256', '')):
+            raise ValueError('x50_certificate_state_invalid')
+        pin = stored['sha256']
+    else:
+        result = protocol.probe(host, timeout=options.get('tmp_timeout_seconds', 10))
+        pin = result.get('certificate_sha256', '')
+        if (result.get('state') != 'tls_verified' or result.get('vendor_chain_verified') is not True
+                or not re.fullmatch('[a-f0-9]{64}', pin)):
+            raise ValueError('x50_certificate_discovery_failed')
+        save(path, {'version': 1, 'host': host, 'sha256': pin})
+    options['x50_certificate_sha256'] = pin
+
+
+def settings(options, allow_missing_pin=False):
+    certificate_mode(options)
     address = ipaddress.ip_address(options['host'])
     pin = options.get('x50_certificate_sha256', '').strip().lower()
     email = options.get('tmp_email', '').strip()
     password = options.get('tmp_password', '')
-    if (address.is_unspecified or address.is_multicast or not re.fullmatch('[a-f0-9]{64}', pin)
+    if (address.is_unspecified or address.is_multicast
+            or not (re.fullmatch('[a-f0-9]{64}', pin) or (allow_missing_pin and not pin))
             or not re.fullmatch(r'[^@\s]+@[^@\s]+', email) or len(email.encode()) > 254
             or not isinstance(password, str) or not 1 <= len(password.encode()) <= 256
             or '\0' in email or '\0' in password):

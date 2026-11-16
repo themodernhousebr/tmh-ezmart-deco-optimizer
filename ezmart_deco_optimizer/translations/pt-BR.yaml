@@ -2,9 +2,12 @@ configuration:
   deco_model:
     name: Modelo do Deco principal
     description: m9_plus mantém o transporte M9. x50 usa TLS e aceita ações apenas no X50 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, modo Router. Não há troca automática de transporte.
+  x50_certificate_mode:
+    name: X50 — obtenção do certificado
+    description: automatic obtém e salva o certificado validado do fabricante na primeira conexão. pinned exige preenchimento manual. Um certificado já informado tem prioridade; mudanças de identidade são bloqueadas.
   x50_certificate_sha256:
     name: X50 — certificado conferido
-    description: Cole o certificate_sha256 obtido no teste deste X50. Deixe vazio no M9. Não é senha; a conexão é bloqueada se o certificado mudar.
+    description: No modo automatic, deixe vazio para obter e salvar o certificado deste X50. No modo pinned, preencha a impressão conferida. Um valor informado tem prioridade; divergências bloqueiam a conexão. Deixe vazio no M9.
   mqtt_enabled:
     name: Entidades no Home Assistant
     description: Publica botões e sensores via MQTT. Quando ativado, o app aguarda pedidos; não executa a ação TMP antiga ao iniciar.

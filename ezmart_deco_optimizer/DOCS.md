@@ -232,3 +232,9 @@ O controle passa pela sessão TPAP/TLS com certificado fixado, prova de senha m�
 Intervalo guest de 60 segundos, sem fila automática de repetições, sem replay após falha ou reinício. A aplicação anterior de canais deve estar verificada e fora do intervalo X50 de 30 minutos. Ações são serializadas; a leitura periódica não inicia ACS ou escrita. Estado de visitantes é do principal, sem comprovar emissão ou conectividade por cada satélite.
 
 Para validar, desative temporariamente automações que comandem o EZmart e confirme o estado inicial no app Deco. Solicite uma única mudança pelo interruptor, aguarde `guest_enabled_verified` ou `guest_disabled_verified` no log/atributo `result`, e confira no app Deco. Depois de pelo menos 60 segundos após a conclusão, teste a operação inversa. Se houver incerteza ou falha, compartilhe somente o relatório filtrado; não repita comandos sem diagnóstico. Relatório em `/data/guest_wifi_report.json`, dentro do app. Também confira conexão de um dispositivo visitante por um secundário antes de considerar propagação validada.
+
+### Certificado automático X50 (0.11.0-dev.2)
+
+`x50_certificate_mode: automatic` é o padrão, inclusive quando a opção não existe em instalações antigas. Em instalação nova deixe `x50_certificate_sha256` vazio: antes de qualquer login, o app obtém o certificado por TLS, valida a cadeia do fabricante e o modelo X50, e salva a identidade em `/data/x50_certificate_state.json`. Depois usa essa identidade para todas as conexões autenticadas. Falha na obtenção aguarda 60 segundos, sem enviar credenciais ou comandos.
+
+Certificados já preenchidos continuam tendo prioridade, preservando os vínculos de relatórios e intervalos de proteção. `pinned` exige o SHA-256 manual. O certificado salvo não é substituído automaticamente se o equipamento apresentar outro: a divergência bloqueia a conexão. IP fixo não é prova de identidade. Esta opção não altera a confiança SSH do M9 e não habilita suporte ao M5.

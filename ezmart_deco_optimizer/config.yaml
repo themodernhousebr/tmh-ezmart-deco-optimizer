@@ -1,5 +1,5 @@
 name: EZmart Deco Optimizer
-version: "0.11.0-dev.1"
+version: "0.11.0-dev.2"
 slug: ezmart_deco_optimizer
 url: https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer
 description: Otimização Deco sob demanda e entidades para automações Home Assistant
@@ -19,6 +19,7 @@ options:
   password: ""
   tmp_host_key_mode: automatic
   tmp_host_key_sha256: ""
+  x50_certificate_mode: automatic
   x50_certificate_sha256: ""
   tmp_enabled: false
   mqtt_enabled: false
@@ -31,6 +32,7 @@ schema:
   password: password
   tmp_host_key_mode: list(automatic|pinned)
   tmp_host_key_sha256: str
+  x50_certificate_mode: list(automatic|pinned)
   x50_certificate_sha256: str
   tmp_enabled: bool
   mqtt_enabled: bool

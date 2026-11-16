@@ -18,6 +18,9 @@ configuration:
   tmp_host_key_sha256:
     name: M9 — verified SSH fingerprint
     description: Required only in pinned mode. Automatic mode does not validate this fingerprint. Keep saved values to preserve journal identity. Leave empty for X50.
+  x50_certificate_mode:
+    name: X50 certificate enrollment
+    description: automatic enrolls and saves the vendor-verified certificate on first connection. pinned requires a manual fingerprint. Existing fingerprints take priority; identity changes are blocked.
   x50_certificate_sha256:
     name: X50 — verified certificate fingerprint
     description: Use certificate_sha256 from this X50 diagnostic. Leave empty for M9. A mismatch blocks connection.

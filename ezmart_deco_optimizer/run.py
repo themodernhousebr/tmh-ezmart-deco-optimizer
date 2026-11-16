@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.1'
+VERSION = '0.11.0-dev.2'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -152,8 +152,8 @@ def main():
         if type(interval) is not int or not 30 <= interval <= 86400:
             raise ValueError()
         if model == 'x50':
-            from x50_backend import Client as X50Client, settings
-            settings(options)
+            from x50_backend import Client as X50Client, settings, certificate_mode, resolve_certificate
+            settings(options, allow_missing_pin=certificate_mode(options) == 'automatic')
             interval = max(60, interval)
         elif not password or not username:
             raise ValueError()
@@ -170,6 +170,17 @@ def main():
         LOG.error('Configuração ou estado inválido; revise as opções e reinicie.')
         return 1
     LOG.info('Versão %s; intervalo de consultas: %s segundos.', VERSION, interval)
+    if model == 'x50':
+        while not STOP.is_set():
+            try:
+                resolve_certificate(options, data, save)
+                LOG.info('X50: certificado individual disponível; cadeia do fabricante e identidade serão verificadas em cada conexão.')
+                break
+            except Exception:
+                LOG.error('X50: não foi possível obter ou carregar o certificado validado; nova tentativa em 60 segundos. Nenhum login enviado.')
+                STOP.wait(60)
+        if STOP.is_set():
+            return 0
     controller = bridge = None
     if options.get('mqtt_enabled', False):
         try:

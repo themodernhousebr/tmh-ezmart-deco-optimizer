@@ -41,6 +41,53 @@ class X50AppTests(unittest.TestCase):
                             tmp_email='owner@example.test', tmp_password='PRIVATE',
                             tmp_enabled=True, mqtt_enabled=True, mqtt_commands_enabled=True, poll_seconds=60)
 
+    def test_automatic_certificate_enrollment_is_readonly_and_persistent(self):
+        self.options['x50_certificate_sha256'] = ''
+        original = dict(self.options)
+        with patch.object(backend.protocol, 'probe', return_value={
+                'state': 'tls_verified', 'vendor_chain_verified': True,
+                'certificate_sha256': 'b'*64}) as probe:
+            backend.resolve_certificate(self.options, self.data, run.save)
+            self.assertEqual(probe.call_args.kwargs, {'timeout': 10})
+            self.assertEqual(self.options['x50_certificate_sha256'], 'b'*64)
+            backend.resolve_certificate(original, self.data, run.save)
+            self.assertEqual(probe.call_count, 1)
+            self.assertEqual(original['x50_certificate_sha256'], 'b'*64)
+
+    def test_certificate_enrollment_rejects_untrusted_or_unexpected_model(self):
+        self.options['x50_certificate_sha256'] = ''
+        for state, trusted in [('certificate_untrusted', False), ('unexpected_certificate_model', True)]:
+            with patch.object(backend.protocol, 'probe', return_value={
+                    'state': state, 'vendor_chain_verified': trusted, 'certificate_sha256': 'b'*64}):
+                with self.assertRaises(ValueError):
+                    backend.resolve_certificate(self.options, self.data, run.save)
+            self.assertFalse((self.data / 'x50_certificate_state.json').exists())
+            self.assertEqual(self.options['x50_certificate_sha256'], '')
+
+    def test_pinned_mode_and_existing_identity_never_enroll(self):
+        with patch.object(backend.protocol, 'probe') as probe:
+            backend.resolve_certificate(self.options, self.data, run.save)
+            self.options.update(x50_certificate_mode='pinned', x50_certificate_sha256='')
+            with self.assertRaises(ValueError):
+                backend.resolve_certificate(self.options, self.data, run.save)
+            probe.assert_not_called()
+
+    def test_certificate_storage_failure_prevents_authentication(self):
+        self.options['x50_certificate_sha256'] = ''
+        with patch.object(backend.protocol, 'probe', return_value={
+                'state': 'tls_verified', 'vendor_chain_verified': True, 'certificate_sha256': 'b'*64}):
+            with self.assertRaises(OSError):
+                backend.resolve_certificate(self.options, self.data, lambda *args: (_ for _ in ()).throw(OSError()))
+        self.assertEqual(self.options['x50_certificate_sha256'], '')
+
+    def test_certificate_cache_for_another_host_is_not_reused(self):
+        run.save(self.data / 'x50_certificate_state.json', {'host': '192.168.68.2', 'sha256': 'b'*64})
+        self.options['x50_certificate_sha256'] = ''
+        with patch.object(backend.protocol, 'probe') as probe:
+            with self.assertRaises(ValueError):
+                backend.resolve_certificate(self.options, self.data, run.save)
+            probe.assert_not_called()
+
     def control(self):
         control = ha_control.Controller(self.options, self.data, run.save, clock=lambda: self.now)
         control.set_monitor({'profile_supported': True, 'nodes': [], 'mode': 'Router'}, True)
@@ -217,7 +264,8 @@ class X50AppTests(unittest.TestCase):
     def test_minimal_config_and_optional_legacy_fields(self):
         config = yaml.safe_load((ROOT/'ezmart_deco_optimizer/config.yaml').read_text())
         defaults = config['options']
-        self.assertEqual(len(defaults), 11)
+        self.assertEqual(len(defaults), 12)
+        self.assertEqual(defaults["x50_certificate_mode"], "automatic")
         self.assertEqual(defaults["tmp_host_key_mode"], "automatic")
         self.assertFalse(defaults['mqtt_commands_enabled'])
         self.assertFalse(defaults['tmp_enabled'])

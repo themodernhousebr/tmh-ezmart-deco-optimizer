@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0-dev.2
+
+- X50 obtém automaticamente o certificado validado do fabricante na primeira conexão e o salva por instalação, sem login durante a obtenção. Modo automático por padrão; modo manual pinned permanece disponível.
+- Preserva certificados já configurados e bloqueia mudanças de identidade. Falhas de obtenção aguardam 60 segundos, sem repetição rápida do processo.
+
 ## 0.11.0-dev.1
 
 - Controle de visitantes opt-in no X50 1.30 / 1.8.4 Build 26051413 Rel. 27460 Router. Reutiliza o interruptor MQTT e exige certificado fixado, autenticação mútua e perfil confirmado antes da escrita. Validação física X50 pendente.

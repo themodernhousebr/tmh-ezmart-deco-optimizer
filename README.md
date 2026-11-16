@@ -176,3 +176,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
 Os testes não acessam um Deco. O teste de comunicação MQTT abre somente loopback. A validação automatizada também constrói a imagem amd64. Temporários/dependências de desenvolvimento devem ficar fora de OneDrive/iCloud, por exemplo em `/private/tmp` no Mac. Firmwares e ferramentas transitórias ficam fora da distribuição e do histórico público.
 
 [Relatar um problema](https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer/issues): inclua modelo, versão de hardware, firmware, modo AP/roteador, versão do app e trechos filtrados do log. Não envie senhas, tokens ou `options.json`.
+
+### Instalação X50 com certificado automático
+
+A partir de 0.11.0-dev.2, `x50_certificate_mode: automatic` é o padrão. Deixe `x50_certificate_sha256` vazio em instalações novas: o app obtém o certificado sem login, valida fabricante/modelo e salva a identidade por instalação. Todas as conexões seguintes conferem essa identidade; mudanças são bloqueadas. Certificados já configurados têm prioridade e são preservados. `pinned` mantém o preenchimento manual. Não é necessário executar o diagnóstico independente para cadastrar uma instalação nova.
