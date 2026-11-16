@@ -1,6 +1,6 @@
-# EZmart Deco Optimizer — 0.12.0-dev.2
+# EZmart Deco Optimizer — 0.12.0 estável
 
-Monitoramento local e otimização sob demanda para M9 Plus V2 em AP, X50 1.30/1.8.4 e 1.0/1.11.1 em Router, e M5 3.0/3.2 com firmware 1.9.5 em Router/AP, respeitando os perfis exatos descritos abaixo. A 0.12 acrescenta desempenho do principal e descoberta dos nós com conectividade da malha e teste IP independente; essas novas leituras aguardam validação em equipamento. A aplicação positiva M5 3.0 ainda não foi observada; a análise respondeu sem necessidade de otimizar.
+Monitoramento local e otimização sob demanda para M9 Plus V2 em AP, X50 1.30/1.8.4 e 1.0/1.11.1 em Router, e M5 3.0/3.2 com firmware 1.9.5 em Router/AP, respeitando os perfis exatos descritos abaixo. A 0.12 acrescenta desempenho do principal e descoberta dos nós com conectividade da malha e teste IP independente; CPU/memória e descoberta dos nós foram observadas em equipamento nos modelos M5, X50 e M9; renomeação e queda/recuperação dos satélites continuam em acompanhamento. A aplicação positiva M5 3.0 ainda não foi observada; a análise respondeu sem necessidade de otimizar.
 
 Esta versão reúne análise, aplicação condicional, verificação e recuperação de resultado incerto. A aplicação pode interromper temporariamente o Wi-Fi. Não há otimização automática por intervalo ou ao surgir interferência. O padrão continua `tmp_action: read` e `tmp_enabled: false`.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.0-dev.2` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.0` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 

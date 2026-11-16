@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 — estável
+
+- Consolida as versões 0.12.0-dev.1 e dev.2, incluindo CPU/memória do principal, descoberta automática dos nós, nome do dispositivo sincronizado com o Deco, IP e conectividade por malha e ICMP independente.
+- Nomes padrão traduzidos para português e nomes personalizados preservados. Identificadores das entidades permanecem fixos.
+- Preserva os controles de visitantes e otimização, perfis exatos, intervalos e agendamento. Atualização pela loja sem desinstalar ou recriar entidades.
+- CPU/memória e descoberta observadas em equipamento nos modelos M5, X50 e M9. Acompanhamento de renomeação e queda/recuperação de satélites continua; aplicação positiva de canais M5 3.0 permanece pendente quando houver recomendação.
+- Promove a implementação consolidada para estável, sem ampliar os perfis de hardware/firmware aceitos.
+
 ## 0.12.0-dev.2
 
 - Traduz para português os nomes padrão de localização retornados pelo firmware, como Kitchen/Cozinha, Office/Escritório e Living Room/Sala de estar.

@@ -2,16 +2,16 @@
 
 <img src="icon.png" alt="The Modern House" width="128">
 
-**0.11.0-dev.1** — monitoramento Deco e otimização sob demanda pelo Home Assistant.
+**0.12.0 — estável.** Monitoramento local e otimização sob demanda pelo Home Assistant para os perfis exatos M9 Plus V2, X50 e M5 descritos na [documentação](DOCS.md).
 
-Cria um dispositivo MQTT com 22 entidades: botões para solicitar otimização ou verificar a última aplicação, disponibilidade, resultado, recomendação, canais, horários, inventário e CPU/memória. Cada pedido faz uma análise; aplica somente quando recomendado. Não há otimização por intervalo. Pedidos simultâneos, antigos ou dentro do intervalo mínimo são bloqueados, sem fila para executar depois.
+O dispositivo MQTT principal reúne os botões de otimização/verificação, o controle opcional de visitantes e sensores de canais, inventário, CPU/memória, disponibilidade e resultados. Cada pedido de otimização analisa e aplica somente quando recomendado. Não há otimização periódica interna.
 
-[Configurar entidades e automações](AUTOMATION.md) inclui atualização única, blueprint de câmera indisponível e cartão de painel. Após instalar, os botões não exigem reinício do app nem mudança manual de ID. O modo manual anterior continua disponível com MQTT desabilitado; veja [DOCS.md](DOCS.md).
+Cada Deco identificado recebe seu próprio dispositivo MQTT com nome sincronizado com o app Deco e entidades fixas para conectividade da malha, endereço IP e resposta ICMP. Nomes padrão de cômodos são traduzidos para português; nomes personalizados são preservados. CPU/memória referem-se ao principal. Monitoramento de nós, IP e desempenho fica ativo por padrão.
 
-O piloto M9 Plus V2 em AP validou uma aplicação na 0.7, com canal 5_2 de 149 para 157 e monitoramento posterior funcionando. A 0.8.0-dev.1 também criou as entidades no HA do piloto e recebeu/concluiu um pedido de verificação por MQTT; a revisão dev.2 ainda não foi instalada nesse HAOS. Uma mudança de canal não comprova ganho de desempenho. A aplicação pode interromper temporariamente o Wi-Fi. O X50 1.30 / 1.8.4 em Router usa TPAP/TLS e os mesmos controles MQTT, com leitura de canais de backhaul. M5 e outros perfis X50 como principal não estão validados.
+O controle de visitantes preserva as configurações existentes e confirma o estado por leitura. Pedidos durante seu intervalo de um minuto são agendados, mantendo apenas o último estado solicitado. Otimizações têm intervalo mínimo de dez minutos e não entram nessa fila. Falhas de escrita não geram repetição automática.
 
-Segredos não são publicados. O Mosquitto do Supervisor é descoberto automaticamente. Instalação pela loja via [repositório personalizado](https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer). Distribuição experimental; o Supervisor constrói a imagem localmente.
+[Configurar entidades e automações](AUTOMATION.md). [Opções, perfis e limites](DOCS.md). [Histórico de versões](CHANGELOG.md).
 
-A configuração nova mostra 11 campos principais; opções manuais e tempos são avançados e opcionais. Consulte [DOCS.md](DOCS.md) para preencher apenas os campos do seu modelo. Configurações M9 existentes são preservadas.
+Instalação e atualização pela loja via [repositório personalizado](https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer). O Supervisor constrói a imagem localmente. Atualize sem desinstalar para preservar opções, identidade MQTT e histórico.
 
-O interruptor opcional de visitantes está validado no M9 e disponível para piloto X50 1.30 / 1.8.4 Router na 0.11. Ative `guest_control_enabled` para usar a rede existente, com confirmação por leitura. Validação física X50 pendente. [Configuração e limites](DOCS.md#wi-fi-de-visitantes-no-x50--piloto-011).
+CPU/memória e descoberta dos nós foram observadas nos modelos M9, M5 e X50. O acompanhamento de renomeação e queda/recuperação de satélites continua. Aplicação positiva de canais M5 hardware 3.0 aguarda recomendação de otimizar; uma alteração de canal não comprova ganho de desempenho.

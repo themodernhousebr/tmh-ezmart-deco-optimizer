@@ -2,11 +2,11 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.12.0-dev.2 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant para perfis exatos M9 Plus V2, X50 e M5. Controle de visitantes validado nos perfis M9 V2/1.9.1, X50 1.30/1.8.4 e 1.0/1.11.1, M5 3.0/1.9.5 e 3.2/1.9.5. Aplicação positiva de canais M5 3.0 ainda pendente; sua análise respondeu sem necessidade de otimizar. Consulte os detalhes e limites na documentação.
+**0.12.0 — estável.** Monitoramento e otimização sob demanda pelo Home Assistant para perfis exatos M9 Plus V2, X50 e M5. Controle de visitantes validado nos perfis M9 V2/1.9.1, X50 1.30/1.8.4 e 1.0/1.11.1, M5 3.0/1.9.5 e 3.2/1.9.5. Aplicação positiva de canais M5 3.0 ainda pendente; sua análise respondeu sem necessidade de otimizar. Consulte os detalhes e limites na documentação.
 
 Cria um dispositivo MQTT principal com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
-O piloto opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). A 0.11 acrescenta o mesmo interruptor no X50 1.30 / 1.8.4 Router, mediante habilitação explícita. O perfil 1.0 / 1.11.1 também está disponível como piloto.
+O controle opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). A 0.11 acrescenta o mesmo interruptor no X50 1.30 / 1.8.4 Router, mediante habilitação explícita. O perfil 1.0 / 1.11.1 também está disponível.
 
 A 0.12 acrescenta CPU/memória do principal X50/M5 e dispositivos automáticos para os nós da malha: nome sincronizado com o app Deco, entidade fixa, endereço IP, conectividade reportada e resposta ICMP independente. As três opções de monitoramento ficam ativas por padrão. [Detalhes e validação inicial](ezmart_deco_optimizer/DOCS.md#monitoramento-dos-nós-e-desempenho--012).
 
