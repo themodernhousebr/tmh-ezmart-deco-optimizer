@@ -3,6 +3,7 @@ import hashlib
 import ipaddress
 import json
 import math
+import logging
 import re
 import time
 
@@ -160,10 +161,32 @@ def run_probe(options, data, save, *, should_stop=None, wait=None, guest_job=Non
         return {'state': 'action_in_progress'}
 
 
+def connection_diagnostic(result):
+    """Only fixed public states and typed booleans; never raw protocol messages."""
+    states = {'authentication_rejected', 'server_proof_mismatch', 'readonly_incomplete',
+              'protocol_error', 'certificate_untrusted', 'certificate_pin_mismatch',
+              'unexpected_certificate_model', 'timeout', 'connection_refused',
+              'tls_error', 'connection_error', 'readonly_verified', 'pake_parameters_received'}
+    report = {'state': result.get('state') if result.get('state') in states else 'unrecognized_result'}
+    for key in ('vendor_chain_verified', 'certificate_pin_matched', 'password_proof_attempted',
+                'password_proof_sent', 'server_proof_verified', 'account_credentials_verified',
+                'session_token_received'):
+        if type(result.get(key)) is bool:
+            report[key] = result[key]
+    reads = result.get('reads', {})
+    report['reads'] = {key: {'state': value.get('state') if value.get('state') in
+                            ('available', 'unsupported', 'error', 'unavailable') else 'unrecognized',
+                            **({'api_code': value['api_code']} if type(value.get('api_code')) is int else {})}
+                       for key, value in reads.items() if key in ('mode', 'devices', 'channels')
+                       and isinstance(value, dict)} if isinstance(reads, dict) else {}
+    return report
+
+
 class Client:
     """Polling reads mode, inventory and backhaul only. No ACS request here."""
     def __init__(self, options, data, save, stop):
         self.options, self.configured = options, settings(options)
+        self.data, self.save = data, save
         self.guard = LoginGuard(data, save, stop.is_set)
         self.cached = None
 
@@ -175,7 +198,9 @@ class Client:
                                 _before_connect=self.guard.before, _login_verified=self.guard.verified,
                                 _guest_read=guest_wifi.enabled(self.options))
         if result['state'] != 'readonly_verified':
-            # Fixed public error, never raw protocol/credentials.
+            diagnostic = connection_diagnostic(result)
+            self.save(self.data / 'x50_connection_report.json', diagnostic)
+            logging.getLogger(__name__).warning('Diagnóstico de conexão X50: %s', json.dumps(diagnostic))
             raise ValueError('x50_read_unavailable')
         return result
 

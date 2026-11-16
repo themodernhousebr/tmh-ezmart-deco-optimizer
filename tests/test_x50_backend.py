@@ -88,6 +88,22 @@ class X50AppTests(unittest.TestCase):
                 backend.resolve_certificate(self.options, self.data, run.save)
             probe.assert_not_called()
 
+    def test_connection_failure_reports_safe_stage_without_raw_secrets(self):
+        result = {'state': 'readonly_incomplete', 'server_proof_verified': True,
+                  'password_proof_sent': True, 'protocol_error': 'PRIVATE',
+                  'reads': {'devices': {'state': 'unavailable', 'api_code': -1, 'data': 'PRIVATE'},
+                            'PRIVATE': {'state': 'PRIVATE'}}}
+        with patch.object(backend.protocol, 'probe', return_value=result):
+            client = backend.Client(self.options, self.data, run.save, self.stop)
+            with self.assertLogs(backend.__name__, level='WARNING') as logs:
+                with self.assertRaises(ValueError):
+                    client.login()
+        report = (self.data / 'x50_connection_report.json').read_text()
+        self.assertNotIn('PRIVATE', report + str(logs.output))
+        self.assertTrue(json.loads(report)['server_proof_verified'])
+        self.assertEqual(json.loads(report)['state'], 'readonly_incomplete')
+        self.assertEqual(backend.connection_diagnostic({'state': 'PRIVATE'})['state'], 'unrecognized_result')
+
     def control(self):
         control = ha_control.Controller(self.options, self.data, run.save, clock=lambda: self.now)
         control.set_monitor({'profile_supported': True, 'nodes': [], 'mode': 'Router'}, True)

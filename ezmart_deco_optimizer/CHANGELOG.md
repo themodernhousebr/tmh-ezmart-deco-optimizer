@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0-dev.3
+
+- Falhas de conexão X50 agora registram um diagnóstico filtrado com estado da conexão, confirmações de autenticação e códigos de leitura. Não expõe credenciais ou respostas brutas e mantém os intervalos de proteção.
+
 ## 0.11.0-dev.2
 
 - X50 obtém automaticamente o certificado validado do fabricante na primeira conexão e o salva por instalação, sem login durante a obtenção. Modo automático por padrão; modo manual pinned permanece disponível.

@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.2'
+VERSION = '0.11.0-dev.3'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -240,7 +240,8 @@ def main():
                     client = None
                     due = time.time() + COOLDOWN
                     save(state, {'next_login': due})
-                    LOG.warning('Autenticação indisponível; nova tentativa após 15 minutos.')
+                    LOG.warning('%s indisponível; nova tentativa após 15 minutos.',
+                                'Conexão ou leitura X50' if model == 'x50' else 'Autenticação')
                     continue
             try:
                 if time.monotonic() >= next_poll:
