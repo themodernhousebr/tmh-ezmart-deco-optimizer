@@ -112,6 +112,7 @@ class X50GuestTests(unittest.TestCase):
                                        guest_control=f.controller.guest)
         self.assertEqual(result['state'], 'guest_connection_failed')
         self.assertEqual(result['connection_state'], 'certificate_pin_mismatch')
+        self.assertEqual(result['connection_diagnostic']['state'], 'certificate_pin_mismatch')
         self.assertFalse(result['write_attempted'])
         self.assertEqual(f.write_calls, [])
 

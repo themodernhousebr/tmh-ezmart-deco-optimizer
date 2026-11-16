@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0-dev.7
+
+- Falha de consulta periódica X50 após autenticação confirmada respeita o intervalo de consultas, em vez de aplicar pausa de autenticação de 15 minutos.
+- Falha de conexão de visitantes inclui diagnóstico filtrado e não provoca consulta imediata adicional. Não repete escrita nem reduz proteção de autenticação não confirmada.
+
 ## 0.11.0-dev.6
 
 - Leitor TMP aceita fragmentos com checksum da mensagem completa, exigindo o mesmo checksum nos fragmentos e validação final antes de interpretar os dados. Preserva checksum por fragmento, CRC externo, autenticação CCM, limites e correlação de transação. Hipótese de compatibilidade para inventários maiores; confirmação física pendente.

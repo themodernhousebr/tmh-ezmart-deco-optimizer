@@ -355,6 +355,22 @@ class X50AppTests(unittest.TestCase):
             self.assertEqual(run.main(), 0)
         self.assertEqual(json.loads((self.data / 'state.json').read_text())['next_login'], 1060)
 
+    def test_periodic_authenticated_read_failure_uses_poll_delay(self):
+        run.save(self.data / 'options.json', self.options)
+        original_save = run.save
+        def save(path, value):
+            original_save(path, value)
+            if path.name == 'status.json' and not value.get('available'):
+                self.stop.set()
+        sdk = SimpleNamespace(DecoClient=MagicMock())
+        with patch.dict(sys.modules, {'tplink_deco_api': sdk}), \
+                patch.object(run, 'Path', return_value=self.data), patch.object(run, 'STOP', self.stop), \
+                patch.object(run, 'save', side_effect=save), patch.object(run.time, 'time', return_value=1000), \
+                patch.object(mqtt_bridge, 'Bridge'), patch.object(backend, 'Client'), \
+                patch.object(run, 'collect', side_effect=backend.AuthenticatedReadUnavailable()):
+            self.assertEqual(run.main(), 0)
+        self.assertEqual(json.loads((self.data / 'state.json').read_text())['next_login'], 1060)
+
     def test_missing_model_keeps_existing_m9_runtime(self):
         options = dict(host='192.168.68.4', password='PRIVATE', mqtt_enabled=True, tmp_enabled=False)
         run.save(self.data/'options.json', options)

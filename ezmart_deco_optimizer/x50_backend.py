@@ -140,7 +140,8 @@ def run_probe(options, data, save, *, should_stop=None, wait=None, guest_job=Non
                                 _guest_callback=lambda reader: guest_wifi.execute(reader, options, data,
                                     guest_control, guest_job, should_stop=should_stop or (lambda: False), wait=wait))
         return result.get('guest_action', {'state': 'guest_connection_failed',
-                                         'connection_state': result['state'], 'write_attempted': False})
+                                         'connection_state': result['state'], 'write_attempted': False,
+                                         'connection_diagnostic': connection_diagnostic(result)})
     action = options.get('tmp_action')
     if action not in ('optimize', 'verify') or not options.get('tmp_enabled', False):
         return {'state': 'commands_disabled'}

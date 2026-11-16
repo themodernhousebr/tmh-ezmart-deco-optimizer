@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.6'
+VERSION = '0.11.0-dev.7'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -211,7 +211,10 @@ def main():
                     if result.get('action_type') != 'guest_wifi':
                         probe_results['tmp'] = {'updated_at': int(time.time()), **result}
                     probe_times.pop('channels', None)
-                    next_poll = 0  # Fresh inventory after the action, not the pre-action snapshot.
+                    # A failed guest connection must not immediately trigger another login/read.
+                    next_poll = (time.monotonic() + interval if
+                                 result.get('action_type') == 'guest_wifi' and
+                                 result.get('state') == 'guest_connection_failed' else 0)
                 if STOP.is_set():
                     break
             if client is None:
@@ -278,7 +281,14 @@ def main():
                 if controller:
                     controller.set_monitor({}, False)
                 save(data / 'status.json', {'updated_at': int(time.time()), 'available': False})
-                if transient_transport(error):
+                from x50_backend import AuthenticatedReadUnavailable
+                if model == 'x50' and isinstance(error, AuthenticatedReadUnavailable):
+                    client = None
+                    due = time.time() + interval
+                    next_poll = time.monotonic() + interval
+                    save(state, {'next_login': due})
+                    LOG.warning('X50 autenticado, mas consulta periódica falhou; nova consulta em %s segundos. Nenhum comando reenviado.', interval)
+                elif transient_transport(error):
                     next_poll = time.monotonic() + interval
                     LOG.warning('Transporte indisponível; sessão preservada. Nova consulta em %s segundos.', interval)
                 else:
