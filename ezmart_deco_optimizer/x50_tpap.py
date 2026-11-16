@@ -409,6 +409,7 @@ class TMPReader:
         self.reserve_apply = None
         self.apply_transaction = None
         self.allow_guest = False
+        self.allow_resource = False
         self.guest_transaction = None
 
     def send(self, opcode, body, offset=0, pull=False):
@@ -444,6 +445,8 @@ class TMPReader:
                 raise ProtocolError('guest_already_attempted')
             else:
                 self.guest_transaction = self.transaction
+        elif opcode == 0x4317 and self.allow_resource:
+            pass  # Manufacturer device_resource/read; no configuration write.
         elif opcode not in (1, *READ_OPS.values()):
             raise ProtocolError("tmp_opcode_not_allowed")
         self.sequence += 1
@@ -610,7 +613,7 @@ def project_read(name, body):
     return {"state": "available" if out else "unrecognized_response", "api_code": 0, "data": out}
 
 
-def read_information(tls, shared_key, timeout, result, allow_scan=False, include_guest=False):
+def read_information(tls, shared_key, timeout, result, allow_scan=False, include_guest=False, include_nodes=False, include_performance=False):
     result.update(stage="tmp_allocate", tmp_session_verified=False,
                   channel_frames_received=0, reads={})
     reader = TMPReader(TMPChannel(tls, shared_key, result), allow_scan=allow_scan)
@@ -628,9 +631,26 @@ def read_information(tls, shared_key, timeout, result, allow_scan=False, include
             document = json.loads(body, object_pairs_hook=unique_object)
             if api_code(document) == 0 and isinstance(document.get('result'), dict):
                 result['guest'] = guest_wifi.project(document['result'])
+        if include_nodes and name == 'devices':
+            import mesh
+            document = json.loads(body, object_pairs_hook=unique_object)
+            if api_code(document) == 0:
+                result['mesh_nodes'] = mesh.project(document['result'].get('device_list'))
         del body
     complete = all(read["state"] == "available" for read in result["reads"].values())
     result.update(state="readonly_verified" if complete else "readonly_incomplete", stage="complete")
+    if complete and include_performance:
+        # Last, optional read: failure never invalidates the successful core reads.
+        from diagnostics import resource_performance
+        reader.allow_resource = True
+        try:
+            document = json.loads(reader.request(0x4317, timeout), object_pairs_hook=unique_object)
+            values = resource_performance(document) if api_code(document) == 0 else {}
+            result['performance'] = {'state': 'available' if values else 'unsupported', 'data': values}
+        except (ProtocolError, OSError, ValueError, UnicodeError):
+            result['performance'] = {'state': 'unavailable', 'data': {}}
+        finally:
+            reader.allow_resource = False
     return reader
 
 
@@ -771,7 +791,7 @@ def apply_information(reader, apply_timeout, result, checkpoint):
 def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None,
           read_info=False, scan_only=False, scan_timeout=120, optimize=False,
           apply_timeout=60, _checkpoint=None, _report=None,
-          _before_connect=None, _login_verified=None, _guest_callback=None, _guest_read=False):
+          _before_connect=None, _login_verified=None, _guest_callback=None, _guest_read=False, _node_read=False, _performance_read=False):
     # Literal unicast IPs avoid DNS delays and accidental broadcast discovery.
     address = ipaddress.ip_address(host)
     if address.is_unspecified or address.is_multicast:
@@ -882,7 +902,8 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
                                 _login_verified()
                             if (read_info or scan_only or optimize) and shared_key is not None:
                                 reader = read_information(tls, shared_key, timeout, result,
-                                                          allow_scan=scan_only or optimize, include_guest=_guest_read)
+                                                          allow_scan=scan_only or optimize, include_guest=_guest_read,
+                                                          include_nodes=_node_read, include_performance=_performance_read)
                                 if _guest_callback is not None and result['state'] == 'readonly_verified':
                                     reader.allow_guest = True
                                     try:

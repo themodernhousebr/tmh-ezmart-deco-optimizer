@@ -1,6 +1,6 @@
-# EZmart Deco Optimizer — 0.11.0-dev.1
+# EZmart Deco Optimizer — 0.12.0-dev.1
 
-Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. A 0.11.0-dev.8 acrescenta piloto X50 hardware 1.0, firmware 1.11.1 Build 26081714 Rel. 32981, Router, após comparação estática das rotinas e testes simulados; confirmação física das ações pendente. Outros perfis X50 e M5 principal não estão validados.
+Monitoramento local e otimização sob demanda para M9 Plus V2 em AP, X50 1.30/1.8.4 e 1.0/1.11.1 em Router, e M5 3.0/3.2 com firmware 1.9.5 em Router/AP, respeitando os perfis exatos descritos abaixo. A 0.12 acrescenta desempenho do principal e descoberta dos nós com conectividade da malha e teste IP independente; essas novas leituras aguardam validação em equipamento. A aplicação positiva M5 3.0 ainda não foi observada; a análise respondeu sem necessidade de otimizar.
 
 Esta versão reúne análise, aplicação condicional, verificação e recuperação de resultado incerto. A aplicação pode interromper temporariamente o Wi-Fi. Não há otimização automática por intervalo ou ao surgir interferência. O padrão continua `tmp_action: read` e `tmp_enabled: false`.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.11.0-dev.1` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.0-dev.1` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 
@@ -80,7 +80,7 @@ O padrão interno do monitoramento é 30 s no M9 e mínimo 60 s no X50. Para o X
 4. Aguardar pelo menos 10 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
 5. Após uma necessidade real, conferir aceite API 0, verificação stable e ID do novo pedido. Verificar última aplicação observa somente a tentativa registrada **neste app**; antes da primeira aplicação pelo app, fica indisponível.
 
-O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 10 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio nem consulta de CPU/memória pelo transporte TPAP.
+O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 10 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio e a 0.12 acrescenta CPU/memória do principal por device_resource/read, quando o firmware fornece esses dados.
 
 A seção seguinte documenta exclusivamente o modo manual M9, preservado para instalações anteriores.
 
@@ -302,3 +302,33 @@ Desative automações que comandem o app durante os testes. Conclua um ciclo, te
 ### M5: modo de sistema e workmode são campos distintos
 
 A partir da 0.11.0-dev.14, `Resumo da Mesh.mode` do M5 usa `DeviceMode.sysmode`, Router ou AP. `workmode` mantém o campo separado da condição de malha, por exemplo FAP. FAP sozinho não comprova funcionamento em bridge/AP. A consulta TMP 0x40A0 expõe o modo de sistema em `result.mode`, e a conferência ao vivo aceita somente Router ou AP, além dos demais campos exatos de perfil. Ausência de sysmode reconhecido no HTTP deixa o perfil indisponível, sem inferir Router ou AP a partir de FAP. Esta correção não altera a projeção de modo existente no M9 ou X50.
+
+
+## Monitoramento dos nós e desempenho — 0.12
+
+As opções abaixo ficam habilitadas por padrão, inclusive ao atualizar uma instalação existente:
+
+```yaml
+monitor_performance: true
+monitor_nodes: true
+monitor_node_ips: true
+poll_seconds: 300
+```
+
+`monitor_performance` consulta CPU e memória **do principal**. M5 usa a leitura HTTP de desempenho existente; X50 usa o formulário de recursos do dispositivo via TPAP/TMP, sem ACS. A leitura pode acrescentar aproximadamente três segundos ao ciclo. `diagnose_performance: false` não desativa esta nova opção: use `monitor_performance: false` se desejar desabilitá-la. Métricas ausentes, inválidas ou antigas ficam desconhecidas.
+
+`monitor_nodes` cria um dispositivo MQTT para cada Deco identificado, incluindo o principal. O nome acompanha o nome configurado no app Deco. A entidade mantém unique_id e entity_id fixos mesmo quando o nó é renomeado ou muda de IP. Se você personalizar o nome no Home Assistant, o próprio Home Assistant pode preservar essa personalização.
+
+Cada nó possui:
+
+- **Conectividade**: conectado/desconectado conforme o estado da malha informado pelo principal. Uma falha de internet não é interpretada como queda do satélite. A ausência de informação válida deixa o estado desconhecido.
+- **Endereço IP**: endereço de administração informado pelo Deco, preservado como último endereço conhecido quando o nó fica ausente.
+- **Resposta IP**: teste ICMP automático do endereço conhecido, habilitado por `monitor_node_ips`. Conectado significa que o IP respondeu; não comprova a identidade de quem respondeu, acesso de visitantes ou acesso à internet.
+
+Os atributos incluem nome, papel principal/satélite (`master`/`slave`), modelo, hardware, firmware, tipo de conexão, nível de sinal, identidade do pai e horários das observações, conforme fornecidos pelo firmware. Campos ausentes não são inferidos. O sinal é a escala reportada pelo Deco, não dBm. Nomes e IPs são enviados ao seu broker MQTT e armazenados localmente, sem aparecer no resumo público de logs.
+
+O teste IP usa duas sondas por endereço, no máximo quatro nós simultâneos, em segundo plano; o intervalo acompanha `poll_seconds`. Não abre login no Deco nem participa da fila de otimização/visitantes. A imagem inclui ping e solicita apenas a capacidade NET_RAW necessária para ICMP. Erros locais de execução deixam a resposta desconhecida.
+
+Cadastros persistem em `/data/mesh_nodes.json`; desaparecimento da resposta não exclui automaticamente um dispositivo ou o marca como desconectado. Estado ausente/antigo fica desconhecido; parada do app ou expiração das mensagens pode deixar a entidade indisponível. Os estados de conectividade individuais não são retidos no broker para evitar restaurar ON antigo após reinício. Os testes ICMP continuam independentes quando uma consulta de administração falha.
+
+Validação inicial: confira nomes e IPs, renomeie um nó no app Deco e confirme que o dispositivo muda de nome mantendo entity_id. Compare o estado informado pela malha com Resposta IP. Valide um satélite desligado em uma janela apropriada antes de substituir as automações de monitoramento existentes. CPU/memória dos satélites individualmente não estão incluídas nesta versão.

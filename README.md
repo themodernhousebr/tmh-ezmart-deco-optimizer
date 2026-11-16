@@ -2,11 +2,13 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.11.0-dev.14 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; visitantes também foi validado no X50 1.30 / 1.8.4. O perfil X50 1.0 / 1.11.1 foi acrescentado como piloto, com validação física das ações pendente.
+**0.12.0-dev.1 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant para perfis exatos M9 Plus V2, X50 e M5. Controle de visitantes validado nos perfis M9 V2/1.9.1, X50 1.30/1.8.4 e 1.0/1.11.1, M5 3.0/1.9.5 e 3.2/1.9.5. Aplicação positiva de canais M5 3.0 ainda pendente; sua análise respondeu sem necessidade de otimizar. Consulte os detalhes e limites na documentação.
 
-Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
+Cria um dispositivo MQTT principal com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
 O piloto opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). A 0.11 acrescenta o mesmo interruptor no X50 1.30 / 1.8.4 Router, mediante habilitação explícita. O perfil 1.0 / 1.11.1 também está disponível como piloto.
+
+A 0.12 acrescenta CPU/memória do principal X50/M5 e dispositivos automáticos para os nós da malha: nome sincronizado com o app Deco, entidade fixa, endereço IP, conectividade reportada e resposta ICMP independente. As três opções de monitoramento ficam ativas por padrão. [Detalhes e validação inicial](ezmart_deco_optimizer/DOCS.md#monitoramento-dos-nós-e-desempenho--012).
 
 ## Instalar pela loja do Home Assistant
 

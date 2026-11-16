@@ -308,7 +308,7 @@ class X50AppTests(unittest.TestCase):
     def test_minimal_config_and_optional_legacy_fields(self):
         config = yaml.safe_load((ROOT/'ezmart_deco_optimizer/config.yaml').read_text())
         defaults = config['options']
-        self.assertEqual(len(defaults), 12)
+        self.assertEqual(len(defaults), 15)
         self.assertEqual(defaults["x50_certificate_mode"], "automatic")
         self.assertEqual(defaults["tmp_host_key_mode"], "automatic")
         self.assertFalse(defaults['mqtt_commands_enabled'])
@@ -386,7 +386,7 @@ class X50AppTests(unittest.TestCase):
         self.assertEqual(json.loads((self.data / 'state.json').read_text())['next_login'], 1060)
 
     def test_missing_model_keeps_existing_m9_runtime(self):
-        options = dict(host='192.168.68.4', password='PRIVATE', mqtt_enabled=True, tmp_enabled=False)
+        options = dict(host='192.168.68.4', password='PRIVATE', mqtt_enabled=True, tmp_enabled=False, monitor_nodes=False)
         run.save(self.data/'options.json', options)
         client = MagicMock()
         client.get_device_list.return_value = [SimpleNamespace(device_model='M9Plus', software_ver='PUBLIC')]

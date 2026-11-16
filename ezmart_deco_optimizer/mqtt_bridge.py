@@ -73,9 +73,9 @@ def discovery(identity, base, version, session, model='m9_plus', guest_enabled=F
     device = {'identifiers': ['ezmart_deco_' + identity], 'name': 'EZmart Deco Optimizer',
               'manufacturer': 'The Modern House', 'model': 'Deco Optimizer — piloto M9 V2', 'sw_version': version}
     if model == 'x50':
-        device['model'] = 'Deco Optimizer — X50 1.30 / 1.8.4'
+        device['model'] = 'Deco Optimizer — X50'
     elif model == 'm5':
-        device['model'] = 'Deco Optimizer — M5 1.9.5 (piloto)'
+        device['model'] = 'Deco Optimizer — M5'
     messages = []
     for domain, suffix, field, extra_name, extra in ENTITIES:
         if model == 'x50' and suffix.startswith('canal_'):
@@ -132,6 +132,12 @@ class Bridge:
         if not isinstance(self.identity, str) or not re.fullmatch('[0-9a-f]{32}', self.identity):
             raise ValueError()
         self.base = 'ezmart/deco/' + self.identity
+        import mesh
+        self.mesh_registry = mesh.Registry(data / 'mesh_nodes.json', save)
+        self.mesh_payloads = {}
+        self.mesh_published_at = {}
+        from ip_monitor import Monitor
+        self.ip_monitor = Monitor(stop, max(30, options.get('poll_seconds', 300)))
         self.connected = threading.Event()
         self.refresh = threading.Event()
         self.session = ''
@@ -205,6 +211,44 @@ class Bridge:
             client.publish('homeassistant/switch/ezmart_deco_' + self.identity + '_visitantes/config',
                            '', qos=1, retain=True)
 
+    def publish_mesh(self, client, view, refresh=False):
+        import mesh
+        enabled = self.options.get('monitor_nodes', True)
+        current = view.get('mesh_nodes', []) if enabled else []
+        self.mesh_registry.update(current)
+        ip_enabled = enabled and self.options.get('monitor_node_ips', True)
+        self.ip_monitor.update({key: node['ip'] for key, node in self.mesh_registry.nodes.items()
+                                if 'ip' in node} if ip_enabled else {})
+        ip_results = self.ip_monitor.snapshot()
+        observed = {node['id']: node for node in current if isinstance(node, dict) and 'id' in node}
+        expiry = max(120, self.options.get('poll_seconds', 300) + 120)
+        for key, metadata in self.mesh_registry.nodes.items():
+            node = observed.get(key)
+            fresh = bool(view.get('mesh_fresh')) and node is not None
+            state = dict(metadata, **(node or {}))
+            ip_result = ip_results.get(key, {})
+            ip_fresh = (ip_enabled and ip_result.get('ip') == state.get('ip')
+                        and time.time() - ip_result.get('checked_at', 0) <= expiry)
+            state.update(connected=node.get('connected') if fresh else None,
+                         observation_fresh=fresh, observed_at=view.get('mesh_at') if fresh else None,
+                         ip_connected=ip_result.get('connected') if ip_fresh else None,
+                         ip_checked_at=ip_result.get('checked_at') if ip_fresh else None)
+            payload = json.dumps(state, ensure_ascii=True, allow_nan=False)
+            configs = [mesh.discovery(self.identity, self.base, metadata, expiry, kind)
+                       for kind in ('mesh', 'ip', 'ip_response')]
+            signature = (json.dumps(configs, sort_keys=True), payload, enabled, ip_enabled)
+            previous = self.mesh_payloads.get(key)
+            if refresh or previous is None or signature[0] != previous[0] or signature[2:] != previous[2:]:
+                for kind, (topic, config) in zip(('mesh', 'ip', 'ip_response'), configs):
+                    active = enabled and (kind != 'ip_response' or ip_enabled)
+                    client.publish(topic, json.dumps(config) if active else '', qos=1, retain=True)
+            if refresh or signature != previous or time.monotonic() - self.mesh_published_at.get(key, 0) >= 30:
+                # Heartbeat covers subscriptions created after the discovery packet.
+                # Freshness is checked above; this never turns stale observations into ON.
+                client.publish(self.base + '/nodes/' + key + '/state', payload, qos=1, retain=False)
+                self.mesh_payloads[key] = signature
+                self.mesh_published_at[key] = time.monotonic()
+
     def run(self):
         import paho.mqtt.client as mqtt
         while not self.stop.is_set():
@@ -214,7 +258,7 @@ class Bridge:
                 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id='ezmart-' + self.identity,
                                      protocol=mqtt.MQTTv5)
                 self.client = client
-                client.max_queued_messages_set(100)
+                client.max_queued_messages_set(2048)
                 client.on_connect, client.on_disconnect, client.on_message = self.on_connect, self.on_disconnect, self.on_message
                 client.on_connect_fail = self.on_connect_fail
                 client.username_pw_set(broker.get('username', ''), broker.get('password', ''))
@@ -236,7 +280,9 @@ class Bridge:
                     if refresh:
                         self.refresh.clear()
                         self.publish_discovery(client)
-                    payload = json.dumps(self.controller.view(), ensure_ascii=True, allow_nan=False)
+                    view = self.controller.view()
+                    self.publish_mesh(client, view, refresh)
+                    payload = json.dumps(view, ensure_ascii=True, allow_nan=False)
                     if refresh or payload != last_payload:
                         client.publish(self.base + '/state', payload, qos=1, retain=True)
                         client.publish(self.base + '/availability', 'online', qos=1, retain=True)
@@ -264,4 +310,5 @@ class Bridge:
                 break
 
     def start(self):
+        self.ip_monitor.start()
         self.thread.start()

@@ -152,7 +152,7 @@ class ControlTests(unittest.TestCase):
         self.options.update(password='PRIVATE', tmp_email='PRIVATE', mqtt_password='PRIVATE')
         self.control.set_monitor({'nodes': [], 'mode': 'FAP', 'diagnostics': {
             'channels': {'state': 'available', 'updated_at': 100, 'data': {'band5_2': {'channel': 149}}},
-            'performance': {'updated_at': 100, 'data': {'cpu_usage': 0.1, 'mem_usage': 0.32, 'password': 'PRIVATE'}}}}, True)
+            'performance': {'state': 'available', 'updated_at': self.now, 'data': {'cpu_usage': 0.1, 'mem_usage': 0.32, 'password': 'PRIVATE'}}}}, True)
         self.control.progress({'state': 'apply_acknowledged', 'request_id': 'public', 'password': 'PRIVATE',
                                'verification': {'last_available': {'state': 'available', 'updated_at': 200, 'data': {'band5_2': {'channel': 157}}}}})
         view = self.control.view()

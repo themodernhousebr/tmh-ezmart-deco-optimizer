@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0-dev.1
+
+- CPU/memória do principal por leitura HTTP no M5 e device_resource/read no X50. Opção monitor_performance ativa por padrão; falha da leitura opcional não invalida inventário reconhecido no X50.
+- Descoberta automática dos nós com dispositivo próprio, nome do app Deco, modelo, hardware, firmware, papel, IP, conexão, sinal e referência ao pai quando fornecidos pelo firmware.
+- Identificadores de entidade fixos por identidade do nó e instalação. Renomear no Deco atualiza o nome do dispositivo; mudanças de IP não recriam entidades.
+- Três entidades por nó: conectividade da malha, endereço IP e resposta ICMP. ICMP roda em segundo plano, com até quatro verificações simultâneas, sem abrir sessões de administração.
+- Falha/ausência de observação da malha produz estado desconhecido; desconectado exige informação explícita do Deco. Estados antigos não são restaurados como conectados após reinício. Cadastro dos nós persiste para manter dispositivos ausentes visíveis.
+- monitor_nodes e monitor_node_ips ativos por padrão. Intervalo ICMP acompanha poll_seconds; duas sondas por IP. Inclui iputils-ping na imagem e capacidade NET_RAW.
+- Mantém comandos, perfis exatos, intervalos e agendamento de visitantes. Novas leituras aguardam validação em equipamento.
+
 ## 0.11.0-dev.14
 
 - Corrige a distinção M5 entre workmode da malha (como FAP) e sysmode de sistema (Router/AP). O inventário mantém ambos separados e usa sysmode para validar o perfil.

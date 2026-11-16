@@ -368,7 +368,8 @@ class Controller:
             if observed.get('updated_at', 0) > channels.get('updated_at', 0):
                 channels = observed
             bands = channels.get('data', {}) if channels.get('state') == 'available' else {}
-            perf = self.monitor.get('diagnostics', {}).get('performance', {}).get('data', {})
+            performance = self.monitor.get('diagnostics', {}).get('performance', {})
+            perf = performance.get('data', {}) if performance.get('state') == 'available' and self.clock() - performance.get('updated_at', 0) <= max(120, self.options.get('poll_seconds', 30) + 60) else {}
             reason = self.reason()
             state = r.get('state', 'idle')
             if self.busy and self.phase.startswith('apply_') and verification:
@@ -390,6 +391,9 @@ class Controller:
                 'last_action_at': iso(r.get('finished_at', r.get('started_at', 0))),
                 'next_allowed_at': iso(self.control['next_allowed']),
                 'monitor_at': iso(self.monitor_at),
+                'mesh_nodes': self.monitor.get('mesh_nodes', []),
+                'mesh_at': self.monitor.get('mesh_at', 0),
+                'mesh_fresh': bool(self.monitor.get('mesh_at')) and self.clock() - self.monitor.get('mesh_at', 0) <= max(120, self.options.get('poll_seconds', 30) + 60),
                 'node_count': len(self.monitor['nodes']) if 'nodes' in self.monitor else None,
                 'mode': self.monitor.get('mode', 'unknown'),
                 'need_optimize': preflight.get('need_optimize'),

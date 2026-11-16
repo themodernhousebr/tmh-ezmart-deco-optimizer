@@ -24,4 +24,4 @@ jobs:
       - name: Build amd64 app image
         run: docker build --pull --tag ezmart-validation ./ezmart_deco_optimizer
       - name: Check installed runtime dependencies
-        run: docker run --rm --entrypoint python ezmart-validation -c "import tplink_deco_api, paramiko, paho.mqtt.client; import run, mqtt_bridge, x50_backend, guest_wifi, m5_profile; from Crypto.Cipher import AES; print(run.VERSION)"
+        run: docker run --rm --entrypoint python ezmart-validation -c "import tplink_deco_api, paramiko, paho.mqtt.client; import run, mqtt_bridge, x50_backend, guest_wifi, m5_profile, mesh, ip_monitor; from Crypto.Cipher import AES; import subprocess; subprocess.run(['ping', '-n', '-c', '1', '-W', '1', '127.0.0.1'], check=True); print(run.VERSION)"

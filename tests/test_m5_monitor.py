@@ -89,7 +89,7 @@ class M5MonitorTests(unittest.TestCase):
         self.assertFalse(run.startup_action_enabled(dict(self.options, mqtt_enabled=False)))
 
     def test_m5_runtime_reads_http_only_and_defaults_to_five_minutes(self):
-        run.save(self.data/'options.json', self.options)
+        run.save(self.data/'options.json', dict(self.options, monitor_nodes=False))
         sdk = SimpleNamespace(DecoClient=MagicMock(return_value=self.client()))
         save = run.save
         def store(path, value):

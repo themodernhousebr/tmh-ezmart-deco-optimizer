@@ -89,3 +89,20 @@ def transient_transport(error):
         return True
     code = getattr(error, 'status_code', None)
     return type(error).__name__ == 'TransportError' and (code is None or (type(code) is int and 500 <= code <= 599))
+
+
+def resource_performance(document):
+    """X50 device_resource uses integer CPU percent and memory KiB, not ratios."""
+    data = document.get('result', {})
+    devices = data.get('device_list') if isinstance(data, dict) else None
+    if not isinstance(devices, list) or len(devices) != 1 or not isinstance(devices[0], dict):
+        return {}
+    node = devices[0]
+    out = {}
+    cpu, used, total = (node.get(k) for k in ('cpu_usage', 'memory_usage', 'memory_total'))
+    if type(cpu) in (int, float) and math.isfinite(cpu) and 0 <= cpu <= 100:
+        out['cpu_usage'] = cpu / 100
+    if (type(used) in (int, float) and type(total) in (int, float)
+            and math.isfinite(used) and math.isfinite(total) and 0 <= used <= total and total > 0):
+        out['mem_usage'] = used / total
+    return out

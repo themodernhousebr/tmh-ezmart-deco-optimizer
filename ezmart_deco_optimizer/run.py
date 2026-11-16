@@ -10,7 +10,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.14'
+VERSION = '0.12.0-dev.1'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -80,7 +80,17 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
             continue
         try:
             LOG.info('Ciclo %s: consultando %s.', cycle, method)
-            result = getattr(client, method)()
+            if method == 'get_device_list' and options.get('monitor_nodes', False):
+                from types import SimpleNamespace
+                import mesh
+                raw = client.request('admin/device', 'device_list', {'operation': 'read'})
+                devices = raw.get('device_list') if isinstance(raw, dict) else None
+                status['mesh_nodes'] = mesh.project(devices)
+                status['mesh_at'] = int(time.time())
+                result = [SimpleNamespace(device_model=d.get('device_model'), software_ver=d.get('software_ver'),
+                          hardware_ver=d.get('hardware_ver'), role=d.get('role')) for d in devices if isinstance(d, dict)]
+            else:
+                result = getattr(client, method)()
         except Exception as error:
             if getattr(error, 'status_code', None) == 404:
                 disabled.add(method)
@@ -112,11 +122,13 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
             else:
                 status['mode'] = result.workmode
     for name in PROBES:
-        if not (options.get('diagnose_' + name, False) or (options.get('mqtt_enabled', False) and name == 'channels')):
+        if not (options.get('monitor_performance', False) and name == 'performance' or options.get('diagnose_' + name, False) or (options.get('mqtt_enabled', False) and name == 'channels')):
             continue
         every = options.get('diagnostic_seconds', 0)
         if options.get('mqtt_enabled', False):
             every = options.get('poll_seconds', 30) if name == 'channels' else max(60, every)
+        if name == 'performance' and options.get('monitor_performance', False):
+            every = options.get('poll_seconds', 300)
         if name in probe_times and (every == 0 or time.monotonic() - probe_times[name] < every):
             continue
         probe_times[name] = time.monotonic()
@@ -180,6 +192,8 @@ def main():
         elif not password or not username:
             raise ValueError()
         options['poll_seconds'] = interval
+        options.setdefault('monitor_nodes', True)
+        options.setdefault('monitor_performance', True)
         # Old saved options take precedence. New MQTT installations use the M9 ACS method.
         if options.get('mqtt_enabled', False):
             options.setdefault('tmp_scan_backend', 'm9_acs')
@@ -291,6 +305,8 @@ def main():
                         probe_results['tmp'] = {'updated_at': int(time.time()), **result}
                         status['diagnostics'] = dict(probe_results)
                         LOG.info('Diagnóstico tmp: %s', json.dumps(probe_results['tmp'], ensure_ascii=True))
+                    if 'mesh_nodes' in status:
+                        LOG.info('Monitoramento de nós: %s identificados; estado e IP publicados individualmente.', len(status['mesh_nodes']))
                     summary = {key: status[key] for key in ('nodes', 'mode', 'workmode', 'unsupported') if key in status}
                     if summary != previous_summary:
                         LOG.info('Resumo da Mesh: %s', json.dumps(summary, ensure_ascii=True))

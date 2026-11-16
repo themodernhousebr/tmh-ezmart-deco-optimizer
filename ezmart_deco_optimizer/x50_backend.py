@@ -223,7 +223,9 @@ class Client:
         result = protocol.probe(c['host'], timeout=c['timeout'], expected_sha256=c['expected_sha256'],
                                 owner_email=c['owner_email'], password=c['password'], read_info=True,
                                 _before_connect=self.guard.before, _login_verified=self.guard.verified,
-                                _guest_read=guest_wifi.enabled(self.options))
+                                _guest_read=guest_wifi.enabled(self.options),
+                                _node_read=self.options.get('monitor_nodes', True),
+                                _performance_read=self.options.get('monitor_performance', True))
         if result['state'] != 'readonly_verified':
             diagnostic = connection_diagnostic(result)
             self.save(self.data / 'x50_connection_report.json', diagnostic)
@@ -244,7 +246,9 @@ class Client:
         return {'updated_at': now, 'available': True, 'cycle': cycle, 'version': version,
                 'backend': 'x50_tpap', 'read_only': True,
                 'profile_supported': protocol.supported_target(result),
+                **({'mesh_nodes': result['mesh_nodes'], 'mesh_at': now} if 'mesh_nodes' in result else {}),
                 'nodes': reads['devices']['data']['nodes'], 'mode': reads['mode']['data']['mode'],
-                'diagnostics': {'channels': dict(reads['channels'], updated_at=now),
+                'diagnostics': {**({'performance': dict(result['performance'], updated_at=now)} if 'performance' in result else {}),
+                                'channels': dict(reads['channels'], updated_at=now),
                                 **({'guest': dict(result['guest'], updated_at=now)} if 'guest' in result else {})},
-                'unsupported': ['acs_periodic', 'performance', 'wifi_support']}
+                'unsupported': ['acs_periodic', 'wifi_support'] + ([] if result.get('performance', {}).get('state') == 'available' else ['performance'])}
