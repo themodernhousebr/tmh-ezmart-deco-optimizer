@@ -1,4 +1,4 @@
-# EZmart Deco Optimizer — 0.9.0-dev.1
+# EZmart Deco Optimizer — 0.10.0-dev.1
 
 Monitoramento local e otimização sob demanda para os perfis testados: M9 Plus V2, firmware 1.9.1 Build 20250612 Rel. 45690, em AP; e X50 hardware 1.30, firmware 1.8.4 Build 26051413 Rel. 27460, em Router. Outros perfis X50 e M5 principal não estão validados.
 
@@ -10,9 +10,44 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 ## Instalar uma vez
 
-Parar o app, copiar a pasta inteira `ezmart_deco_optimizer` do Mac para `/local_apps/ezmart_deco_optimizer` no HAOS via SFTP e atualizar a loja. Usar Atualizar quando a nova versão aparecer; essa operação já constrói a imagem. Se optar por Reconstruir, basta uma reconstrução após copiar. Não fazer os dois em sequência e não desinstalar: preserve opções e histórico.
+Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Incluir todos os módulos, incluindo `x50_tpap.py`, `x50_backend.py`, `m9_actions.py`, `ha_control.py` e `mqtt_bridge.py`. Confirmar `Versão 0.9.0-dev.1` no log. Esta versão acrescenta PyCryptodome 3.23.0 para o X50; dependências ficam antes do código no Dockerfile para permitir cache. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.10.0-dev.1` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+
+## Wi-Fi de visitantes no M9 — piloto 0.10
+
+Recurso opcional, inicialmente restrito ao principal M9 Plus V2 com firmware **1.9.1 Build 20250612 Rel. 45690**, modo AP/FAP. Implementação e testes automatizados concluídos; ligar/desligar no equipamento físico ainda precisa ser validado. O X50 não recebe este interruptor nesta etapa.
+
+Use a rede de visitantes já configurada no app Deco, com o nome, senha, isolamento e duração desejados. Acrescente à configuração existente do EZmart:
+
+```yaml
+guest_control_enabled: true
+```
+
+Mantenha `deco_model: m9_plus`, `mqtt_enabled: true`, `mqtt_commands_enabled: true` e `tmp_enabled: true`, com as mesmas credenciais e impressão SSH do M9. A opção também aparece em “Mostrar opções de configuração opcionais não utilizadas”. Salve e reinicie apenas o EZmart. Surge **Wi-Fi de visitantes**, ID sugerido `switch.ezmart_deco_visitantes`, no mesmo dispositivo MQTT. As 22 entidades existentes preservam suas identidades.
+
+- **Ligar** solicita visitantes em 2,4 e 5 GHz; **desligar** desativa ambas. Não há configuração por nó: o comando vai ao principal, que gerencia a malha.
+- O estado ON significa que pelo menos uma dessas bandas está ativa; os atributos `bands` mostram cada uma. O estado vem da leitura do principal, também refletindo mudanças feitas no app Deco. Não confirma individualmente a emissão ou o acesso à internet em cada satélite.
+- O app envia uma única escrita parcial, preservando o isolamento lido e omitindo SSID, senha, segurança, VLAN, duração e rede principal. Compara essas configurações em memória após a mudança. Nenhuma delas é publicada no MQTT ou nos relatórios. O firmware pode renovar o prazo de uma rede temporária ao ligá-la.
+- Confirmação exige duas leituras consecutivas com o estado solicitado e as configurações protegidas iguais. São até 12 leituras, espaçadas em 5 segundos, além do tempo das consultas. Perda de resposta nunca repete a escrita. Não há comando de visitantes na inicialização ou reconexão MQTT.
+- Intervalo próprio de 60 segundos; comandos recusados não ficam na fila. Visitantes e otimização usam o mesmo trabalhador; uma aplicação de canais pendente bloqueia a mudança de visitantes. O histórico de otimização permanece separado.
+
+No primeiro teste, confira o estado inicial no HA e no app Deco. Acione uma vez, aguarde a confirmação e confira conexão de um visitante também por um secundário. Após o intervalo, teste a operação inversa. O firmware pode recarregar o Wi-Fi ao aplicar a mudança; execute em um momento apropriado para uma possível interrupção breve.
+
+Os atributos do interruptor mostram `result`, `blocked_reason`, `write_attempted`, `observed_at`, `bands` e `verification_scope: main_deco`. Resultados:
+
+| Resultado | Significado |
+|---|---|
+| `guest_enabled_verified` / `guest_disabled_verified` | Comando aceito e estado confirmado por duas leituras |
+| `guest_already_set` | Estado já correspondia ao pedido; nenhuma escrita |
+| `guest_state_confirmed_without_ack` | Estado confirmado, mas aceite do comando não confirmado |
+| `guest_outcome_uncertain` | Não houve confirmação suficiente; não reenviou o comando |
+| `guest_settings_changed` | A comparação detectou mudança adicional; conferir no app Deco, sem reversão automática |
+| `guest_profile_not_validated` | Modelo, hardware, firmware ou modo fora do piloto; nenhuma escrita |
+| `guest_configuration_unavailable` | Leitura incompleta ou configuração não reconhecida; nenhuma escrita |
+| `interrupted_no_replay` | Houve reinício durante o pedido; nenhuma retomada automática |
+
+Relatórios filtrados ficam em `/data/guest_wifi_report.json` e `/data/guest_wifi_state.json` **dentro do EZmart**. O `/data` do Terminal é outro diretório. Para o piloto, os atributos do interruptor e os logs de conclusão já permitem compartilhar o resultado sem credenciais. Desabilitar `guest_control_enabled` remove o interruptor da descoberta MQTT; não altera a rede de visitantes no Deco.
 
 ## Configuração diária por modelo
 

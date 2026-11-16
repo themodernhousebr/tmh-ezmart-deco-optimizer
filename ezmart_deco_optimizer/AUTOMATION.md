@@ -1,4 +1,4 @@
-# Home Assistant sob demanda — 0.9.0-dev.1
+# Home Assistant sob demanda — 0.10.0-dev.1
 
 O Home Assistant solicita a otimização por um botão MQTT. Não existe agenda de análises ACS nem otimização periódica. Cada pedido aceito faz uma análise e só envia aplicação quando o Deco recomenda mudança. Reiniciar o app ou reconectar o MQTT não cria um pedido.
 
@@ -119,12 +119,16 @@ Para suspender os comandos, desabilitar `mqtt_commands_enabled` e reiniciar some
 
 ## Validar sem uma otimização desnecessária
 
-1. Conferir versão 0.9.0-dev.1, conexão MQTT e criação do dispositivo/entidades. Nenhuma ação deve iniciar apenas por isso.
+1. Conferir versão 0.10.0-dev.1, conexão MQTT e criação do dispositivo/entidades. Nenhuma ação deve iniciar apenas por isso.
 2. Como o piloto já tem m9-opt-001 aplicado, pressionar **Verificar última aplicação**. Acompanhar Em execução e Último resultado. Esse teste apenas observa canais e não chama ACS/aplicação.
 3. Conferir canais e horário de monitoramento; comparar com o relatório do app. Um resultado reconhecido da ação anterior continua com sua incerteza original, se houver.
 4. Configurar a automação escolhendo as entidades reais. Deixar a próxima necessidade real acionar Otimizar se necessário. Para um teste deliberado do botão, considerar que ele pode aplicar uma recomendação positiva e interromper temporariamente o Wi-Fi.
 5. Enviar o log MQTT e a linha `Pedido Home Assistant concluído`, sem opções/credenciais. Não é necessário exportar todos os tópicos do broker.
 
-A 0.7 já teve aplicação física validada: canal 149→157 e continuidade do monitoramento. A 0.8 preserva esse protocolo; os novos caminhos de MQTT/HA têm testes locais e de comunicação MQTT 5 em loopback, sem acesso ao Deco. O piloto confirmou a criação das entidades e a conclusão de um pedido verification_only via Home Assistant na 0.8.0-dev.1. A automação de câmera e a revisão dev.2 ainda precisam ser executadas nesse HAOS. O X50 1.30/1.8.4 Router teve aplicação física confirmada pelo diagnóstico, com backhaul 2,4 GHz 10→4 e três leituras estáveis. O uso do novo transporte pelos botões MQTT no HA do cliente ainda está pendente. M5 e outros perfis X50 não estão validados.
+A 0.7 já teve aplicação física validada: canal 149→157 e continuidade do monitoramento. A 0.8 preserva esse protocolo; os novos caminhos de MQTT/HA têm testes locais e de comunicação MQTT 5 em loopback, sem acesso ao Deco. O piloto confirmou a criação das entidades e a conclusão de um pedido verification_only via Home Assistant na 0.8.0-dev.1. A automação de câmera e a revisão dev.2 ainda precisam ser executadas nesse HAOS. O X50 1.30/1.8.4 Router teve aplicação física confirmada pelo diagnóstico, com backhaul 2,4 GHz 10→4 e três leituras estáveis. Na 0.9, o botão MQTT do X50 foi confirmado no HA do cliente: aplicação aceita e backhaul 2,4 GHz de 4 para 5. M5 e outros perfis X50 não estão validados.
 
 Referências oficiais: [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery), [botão MQTT](https://www.home-assistant.io/integrations/button.mqtt/), [serviço MQTT do Supervisor](https://contributors.home-assistant.io/apps/guides/services-discovery/), [blueprints](https://www.home-assistant.io/docs/blueprint/schema/).
+
+## Interruptor de visitantes M9
+
+Na 0.10, `guest_control_enabled: true` adiciona `switch.ezmart_deco_visitantes` às 22 entidades. Use as ações normais `switch.turn_on` / `switch.turn_off` do Home Assistant. O interruptor publica o estado observado; comandos não retidos e vinculados à conexão MQTT atual. Não modifica o resultado/ID de otimização usado pelos blueprints acima. [Configuração e piloto físico](DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). Nenhuma automação de visitantes é criada pelo app.

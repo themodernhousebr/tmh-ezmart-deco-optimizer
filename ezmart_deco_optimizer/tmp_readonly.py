@@ -23,10 +23,11 @@ class ProtocolError(Exception):
     pass
 
 
-def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False, allow_acs_scan=False, allow_acs_apply=False):
+def packet(opcode, body, transaction, sequence, offset=0, pull=False, allow_scan=False, allow_acs_scan=False, allow_acs_apply=False, allow_guest=False):
     if (opcode not in (ALLOC, QUALITY) and not (allow_scan and opcode == SCAN)
             and not (allow_acs_scan and opcode == M9_ACS_SCAN)
-            and not (allow_acs_apply and opcode == M9_ACS_APPLY)):
+            and not (allow_acs_apply and opcode == M9_ACS_APPLY)
+            and not (allow_guest and opcode in (0x4008, 0x400F, 0x40A0))):
         raise ProtocolError()
     business = struct.pack('>BBHBBHIII', 1, 2, opcode, 4 if pull else 2,
                            0, transaction, zlib.crc32(body) if body else 0, len(body), offset) + body
@@ -40,6 +41,7 @@ class Reader:
         self.allow_scan = allow_scan
         self.allow_acs_scan = False
         self.allow_acs_apply = False
+        self.allow_guest = False
         self.channel = channel
         self.sequence = 0
         self.transaction = -1
@@ -65,15 +67,29 @@ class Reader:
             raise TimeoutError()
         self.channel.settimeout(remaining)
         self.channel.sendall(packet(opcode, body, self.transaction, self.sequence, offset, pull,
-                                    self.allow_scan, self.allow_acs_scan, self.allow_acs_apply))
+                                    self.allow_scan, self.allow_acs_scan, self.allow_acs_apply, self.allow_guest))
 
     def request(self, opcode, timeout_seconds=20):
+        if opcode not in (ALLOC, QUALITY, SCAN, M9_ACS_SCAN, M9_ACS_APPLY):
+            raise ProtocolError()
+        params = {} if opcode in (M9_ACS_SCAN, M9_ACS_APPLY) else {'scan_type': ['network_quality']}
+        return self._exchange(opcode, params, timeout_seconds)
+
+    def guest_request(self, opcode, params=None):
+        from guest_wifi import READ_OPS, WRITE_WLAN, validate_params
+        if not self.allow_guest or opcode not in (*READ_OPS, WRITE_WLAN):
+            raise ProtocolError()
+        if opcode == WRITE_WLAN:
+            validate_params(params)
+        elif params is not None:
+            raise ProtocolError()
+        return self._exchange(opcode, params or {}, 20)
+
+    def _exchange(self, opcode, params, timeout_seconds):
         if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 180:
             raise ProtocolError()
         self.deadline = time.monotonic() + timeout_seconds
         self.transaction += 1
-        # The quality-result read requires a network_quality selector.
-        params = {} if opcode in (M9_ACS_SCAN, M9_ACS_APPLY) else {'scan_type': ['network_quality']}
         request = {'config_version': int(time.time()*1000), 'params': params}
         body = b'' if opcode == ALLOC else json.dumps(request, separators=(',', ':')).encode()
         self.send(opcode, body)
@@ -187,9 +203,15 @@ def scan_request(options, data):
     return (request_id, backend, wait, journal, history), None
 
 
-def run_probe(options, data, save, clock=time.time, channel_snapshot=None, should_stop=lambda: False, wait=None):
+def run_probe(options, data, save, clock=time.time, channel_snapshot=None, should_stop=lambda: False, wait=None,
+              guest_job=None, guest_control=None):
     """One connection per process. A missing pin discovers identity without auth."""
-    action = options.get('tmp_action', 'read')
+    action = 'read' if guest_job is not None else options.get('tmp_action', 'read')
+    if guest_job is not None:
+        from guest_wifi import enabled
+        if (not enabled(options) or not options.get('mqtt_enabled') or not options.get('mqtt_commands_enabled')
+                or not options.get('tmp_enabled') or guest_control is None):
+            return {'state': 'guest_control_disabled'}
     if action not in ('read', 'scan', 'optimize', 'verify'):
         return {'state': 'invalid_action'}
     if action in ('optimize', 'verify'):
@@ -213,7 +235,8 @@ def run_probe(options, data, save, clock=time.time, channel_snapshot=None, shoul
     state = data / 'tmp_state.json'
     try:
         due = json.loads(state.read_text()).get('next_login', 0) if state.exists() else 0
-        if type(due) not in (int, float) or due < 0:
+        from m9_actions import finite_time
+        if not finite_time(due):
             return {'state': 'invalid_state'}
         if due > clock():
             return {'state': 'cooldown', 'remaining_seconds': int(due-clock())+1}
@@ -260,6 +283,15 @@ def run_probe(options, data, save, clock=time.time, channel_snapshot=None, shoul
         if not re.fullmatch(b'[0-9a-fA-F]{32}', token):
             raise ProtocolError()
         del token
+        if guest_job is not None:
+            from guest_wifi import execute
+            stage = 'guest_wifi'
+            reader.allow_guest = True
+            try:
+                return execute(reader, options, data, guest_control, guest_job, channel_snapshot,
+                               should_stop=should_stop, wait=wait, clock=clock)
+            finally:
+                reader.allow_guest = False
         if action == 'optimize':
             from m9_actions import optimize_once
             stage = 'optimize'

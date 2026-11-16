@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.9.0-dev.1'
+VERSION = '0.10.0-dev.1'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -50,12 +50,17 @@ def process_job(controller, client, options, data, store=save, stop=STOP):
         if path.name in ('tmp_optimize_report.json', 'x50_optimize_report.json'):
             controller.progress(value)
     try:
+        guest_args = ({'guest_job': job, 'guest_control': controller.guest}
+                      if job['action'].startswith('guest_') else {})
         result = run_probe(action_options, data, record, channel_snapshot=lambda:
                            client.request('admin/wireless', 'wlan', {'operation': 'read'}),
-                           should_stop=stop.is_set, wait=stop.wait)
+                           should_stop=stop.is_set, wait=stop.wait, **guest_args)
     except Exception:
         result = {'state': 'action_failed_no_replay'}
     controller.finish(result)
+    if job['action'].startswith('guest_'):
+        result = dict(result, action_type='guest_wifi')
+        store(data / 'guest_wifi_report.json', result)
     LOG.info('Pedido Home Assistant concluído: %s', json.dumps(result, ensure_ascii=True))
     return result
 
@@ -96,7 +101,17 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
         probe_times[name] = time.monotonic()
         LOG.info('Diagnóstico %s: leitura iniciada.', name)
         try:
-            result = {'state': 'available', 'data': probe(client, name), 'updated_at': int(time.time())}
+            import guest_wifi
+            if name == 'channels' and guest_wifi.enabled(options):
+                from diagnostics import project
+                probe_results['guest'] = {'state': 'unavailable', 'updated_at': int(time.time())}
+                raw = client.request('admin/wireless', 'wlan', {'operation': 'read'})
+                probe_results['guest'] = dict(guest_wifi.project(raw), updated_at=int(time.time()))
+                projected = project('channels', raw)
+                del raw
+            else:
+                projected = probe(client, name)
+            result = {'state': 'available', 'data': projected, 'updated_at': int(time.time())}
         except Exception as error:
             code = getattr(error, 'status_code', None)
             if code in (401, 403) or type(error).__name__ == 'AuthenticationError':
@@ -227,7 +242,9 @@ def main():
                         break
                     result = process_job(controller, client, options, data)
                     if result is not None:
-                        probe_results['tmp'] = {'updated_at': int(time.time()), **result}
+                        if result.get('action_type') != 'guest_wifi':
+                            probe_results['tmp'] = {'updated_at': int(time.time()), **result}
+                        probe_times.pop('channels', None)
                         next_poll = 0  # Fresh inventory after the action, not the pre-action snapshot.
             except Exception as error:
                 LOG.warning('Falha de consulta: %s', json.dumps(error_summary(error)))

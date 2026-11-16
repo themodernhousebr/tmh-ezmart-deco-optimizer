@@ -69,7 +69,7 @@ ENTITIES = (
 )
 
 
-def discovery(identity, base, version, session, model='m9_plus'):
+def discovery(identity, base, version, session, model='m9_plus', guest_enabled=False):
     device = {'identifiers': ['ezmart_deco_' + identity], 'name': 'EZmart Deco Optimizer',
               'manufacturer': 'The Modern House', 'model': 'Deco Optimizer — piloto M9 V2', 'sw_version': version}
     if model == 'x50':
@@ -100,6 +100,21 @@ def discovery(identity, base, version, session, model='m9_plus'):
             if suffix == 'resultado':
                 config.update(json_attributes_topic=base + '/state', json_attributes_template='{{ value_json.details | tojson }}')
         messages.append(('homeassistant/' + domain + '/' + unique + '/config', config))
+    if model == 'm9_plus' and guest_enabled:
+        unique = 'ezmart_deco_' + identity + '_visitantes'
+        config = {'name': 'Wi-Fi de visitantes', 'unique_id': unique,
+                  'default_entity_id': 'switch.ezmart_deco_visitantes', 'device': device, 'icon': 'mdi:wifi',
+                  'command_topic': base + '/command', 'state_topic': base + '/state',
+                  'optimistic': False, 'qos': 0, 'retain': False, 'state_on': 'ON', 'state_off': 'OFF',
+                  'value_template': "{{ 'None' if value_json.guest_enabled is none else ('ON' if value_json.guest_enabled else 'OFF') }}",
+                  'payload_on': json.dumps({'action': 'guest_on', 'session': session}, separators=(',', ':')),
+                  'payload_off': json.dumps({'action': 'guest_off', 'session': session}, separators=(',', ':')),
+                  'availability_mode': 'all',
+                  'availability': [{'topic': base + '/availability'}, {'topic': base + '/state',
+                                    'value_template': "{{ 'online' if value_json.guest_available else 'offline' }}"}],
+                  'json_attributes_topic': base + '/state',
+                  'json_attributes_template': '{{ value_json.guest_details | tojson }}'}
+        messages.append(('homeassistant/switch/' + unique + '/config', config))
     return messages
 
 
@@ -173,7 +188,7 @@ class Bridge:
             value = json.loads(message.payload)
             if (not isinstance(value, dict) or set(value) != {'action', 'session'}
                     or not self.session or value['session'] != self.session
-                    or value['action'] not in ('optimize', 'verify')):
+                    or value['action'] not in ('optimize', 'verify', 'guest_on', 'guest_off')):
                 return
             self.controller.accept(value['action'])
         except (ValueError, TypeError, UnicodeError):
@@ -181,8 +196,12 @@ class Bridge:
 
     def publish_discovery(self, client):
         for topic, value in discovery(self.identity, self.base, self.version, self.session,
-                                      self.options.get('deco_model', 'm9_plus')):
+                                      self.options.get('deco_model', 'm9_plus'), self.options.get('guest_control_enabled', False)):
             client.publish(topic, json.dumps(value, ensure_ascii=True), qos=1, retain=True)
+        if self.options.get('deco_model', 'm9_plus') != 'm9_plus' or not self.options.get('guest_control_enabled'):
+            # Remove only our optional switch when the feature/model changes.
+            client.publish('homeassistant/switch/ezmart_deco_' + self.identity + '_visitantes/config',
+                           '', qos=1, retain=True)
 
     def run(self):
         import paho.mqtt.client as mqtt

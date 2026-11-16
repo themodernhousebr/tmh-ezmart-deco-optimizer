@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0-dev.1
+
+- Controle opcional da rede de visitantes existente, inicialmente no M9 Plus V2 / 1.9.1 Build 20250612 Rel. 45690 em AP. Validação física deste recurso ainda pendente; X50 mantém somente as funções anteriores.
+- Interruptor MQTT `switch.ezmart_deco_visitantes`: liga as bandas 2,4 e 5 GHz ou desliga ambas. Estado observado pelo principal, sem confirmação otimista; mudanças feitas pelo app Deco aparecem no monitoramento.
+- Comando parcial preserva isolamento e omite SSID, senha, segurança, VLAN, duração, rede principal e canais. Confere configuração antes/depois em memória; relatórios omitem dados privados. Firmware pode renovar o prazo de uma rede temporária ao ligá-la.
+- Reserva persistente antes da escrita, uma tentativa, confirmação com duas leituras, sem reenvio após perda de resposta/reinício. Intervalo próprio de 60 s, uma tarefa por vez e bloqueio durante aplicação de canais pendente. Histórico de visitantes separado da otimização.
+- Mantém identidade e IDs das 22 entidades existentes. Acrescenta apenas o interruptor quando `guest_control_enabled: true`; desabilitar a opção remove sua descoberta MQTT. Nenhuma ação de visitantes na inicialização.
+- Acrescenta testes de payload restrito, perfil, admissão, recuperação, privacidade e MQTT real em loopback.
+
 ## 0.9.0-dev.1
 
 - Incorpora ao app o transporte X50 TPAP/TLS com certificado fixado e autenticação mútua, reutilizando o cliente do diagnóstico físico. Seleção explícita por modelo; transporte e histórico M9 preservados.

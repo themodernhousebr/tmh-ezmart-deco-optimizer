@@ -47,6 +47,12 @@ def frame(sock):
 @unittest.skipUnless(importlib.util.find_spec('paho'), 'Paho optional; isolated wheel required for loopback validation')
 class WireTests(unittest.TestCase):
     def test_real_client_discovery_and_retained_stale_duplicate_command_guards(self):
+        self.run_wire()
+
+    def test_real_guest_switch_discovery_and_command_guards(self):
+        self.run_wire(guest_mode=True)
+
+    def run_wire(self, guest_mode=False):
         stop = threading.Event()
         server = socket.socket()
         server.bind(('127.0.0.1', 0))
@@ -97,21 +103,30 @@ class WireTests(unittest.TestCase):
             data = Path(directory)
             options = {'host': '192.168.68.4', 'tmp_host_key_sha256': 'a'*64, 'tmp_scan_backend': 'm9_acs',
                        'mqtt_commands_enabled': True, 'tmp_enabled': True, 'mqtt_host': '127.0.0.1',
-                       'mqtt_port': server.getsockname()[1], 'mqtt_enabled': True}
+                       'mqtt_port': server.getsockname()[1], 'mqtt_enabled': True,
+                       'guest_control_enabled': guest_mode}
             controller = Controller(options, data, save)
-            controller.set_monitor({'nodes': [], 'mode': 'FAP'}, True)
+            controller.set_monitor({'nodes': [], 'mode': 'FAP', 'diagnostics': {'guest': {
+                'state': 'available', 'updated_at': time.time(), 'enabled': False,
+                'bands': {'band2_4': False, 'band5_1': False}}}}, True)
             bridge = Bridge(options, data, save, controller, stop, '0.8.0-dev.1')
             bridge.start()
             try:
                 deadline = time.monotonic()+7
-                while time.monotonic() < deadline and len([t for t, _ in messages if t.endswith('/config')]) < len(ENTITIES):
+                count = len(ENTITIES) + int(guest_mode)
+                while time.monotonic() < deadline and len([t for t, p in messages if t.endswith('/config') and p]) < count:
                     time.sleep(0.05)
                 self.assertEqual(errors, [])
-                self.assertEqual(len([t for t, _ in messages if t.endswith('/config')]), len(ENTITIES))
+                self.assertEqual(len([t for t, p in messages if t.endswith('/config') and p]), count)
+                if guest_mode:
+                    switch = next(json.loads(p) for t, p in messages if '/switch/' in t and p)
+                    self.assertFalse(switch['optimistic'])
+                    self.assertEqual(json.loads(switch['payload_on'])['session'], bridge.session)
                 self.assertIn((bridge.base+'/command', 40), subscriptions)
                 def command(session, retain=False):
                     topic = (bridge.base+'/command').encode()
-                    body = struct.pack('>H', len(topic)) + topic + b'\x00' + json.dumps({'action': 'optimize', 'session': session}).encode()
+                    body = struct.pack('>H', len(topic)) + topic + b'\x00' + json.dumps({
+                        'action': 'guest_on' if guest_mode else 'optimize', 'session': session}).encode()
                     send(bytes([0x31 if retain else 0x30]) + variable(len(body)) + body)
                 command(bridge.session, retain=True)
                 command('previous-connection')
@@ -122,9 +137,9 @@ class WireTests(unittest.TestCase):
                 deadline = time.monotonic()+2
                 while controller.pending is None and time.monotonic() < deadline: time.sleep(0.02)
                 self.assertIsNotNone(controller.pending)
-                stored = json.loads((data/'automation_state.json').read_text())
+                stored = json.loads((data/('guest_wifi_state.json' if guest_mode else 'automation_state.json')).read_text())
                 self.assertTrue(stored['inflight'])
-                self.assertEqual(stored['last_id'], controller.pending['request_id'])
+                self.assertEqual(stored['request_id' if guest_mode else 'last_id'], controller.pending['request_id'])
                 self.assertFalse((data/'tmp_optimize_journal.json').exists())  # No worker/Deco contacted.
             finally:
                 stop.set()

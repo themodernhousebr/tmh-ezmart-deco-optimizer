@@ -8,6 +8,7 @@ import uuid
 
 from m9_actions import finite_time
 import m9_actions
+import guest_wifi
 
 LOG = logging.getLogger('ezmart')
 
@@ -34,6 +35,9 @@ class Controller:
         self.healthy = False
         self.fault = None
         self.report = {}
+        self.active_job = None
+        self.guest = guest_wifi.Control(options, data, save, clock)
+        self.guest_observed = {}
         self.path = data / 'automation_state.json'
         self.control = {'version': 1, 'next_allowed': 0, 'next_verify': 0,
                         'inflight': False, 'last_request': 'none', 'last_id': '', 'last_action': ''}
@@ -100,6 +104,8 @@ class Controller:
             return 'busy'
         if not self.reachable():
             return 'monitor_unavailable'
+        if guest_wifi.enabled(self.options) and self.clock() < self.guest.state['next_allowed']:
+            return 'guest_cooldown'
         if self.x50 and not self.monitor.get('profile_supported', False):
             return 'x50_profile_not_validated'
         if self.clock() < self.control['next_allowed' if action == 'optimize' else 'next_verify']:
@@ -121,8 +127,55 @@ class Controller:
         _, error = self.actions.prepare(options, self.data, self.clock(), verify=action == 'verify')
         return error['state'] if error else 'ready'
 
+    def guest_snapshot(self):
+        current = self.monitor.get('diagnostics', {}).get('guest', {})
+        return self.guest_observed if self.guest_observed.get('updated_at', 0) > current.get('updated_at', 0) else current
+
+    def guest_reason(self):
+        if not guest_wifi.enabled(self.options):
+            return 'guest_control_disabled'
+        if self.fault:
+            return self.fault
+        if (not self.options.get('mqtt_enabled') or not self.options.get('mqtt_commands_enabled')
+                or not self.options.get('tmp_enabled')):
+            return 'commands_disabled'
+        if self.busy or self.pending:
+            return 'busy'
+        observed = self.guest_snapshot()
+        if (not self.reachable() or observed.get('state') != 'available'
+                or self.clock() - observed.get('updated_at', 0) > max(60, self.options.get('poll_seconds', 30) + 30)):
+            return 'guest_monitor_unavailable'
+        try:
+            path = self.data / 'tmp_state.json'
+            due = json.loads(path.read_text()).get('next_login', 0) if path.exists() else 0
+            if not finite_time(due):
+                return 'invalid_tmp_state'
+            if self.clock() < due:
+                return 'tmp_auth_cooldown'
+        except Exception:
+            return 'invalid_tmp_state'
+        return self.guest.reason()
+
+    def accept_guest(self, action):
+        reason = self.guest_reason()
+        if reason != 'ready':
+            LOG.info('Pedido de visitantes não executado: %s.', reason)
+            return reason
+        request_id = 'guest-' + uuid.uuid4().hex
+        try:
+            self.guest.reserve(request_id)
+        except Exception:
+            self.fault = 'guest_storage_error'
+            return self.fault
+        self.pending = {'action': action, 'request_id': request_id, 'expires_at': self.clock() + 60}
+        self.wake.set()
+        LOG.info('Pedido de visitantes aceito: %s.', action)
+        return 'accepted'
+
     def accept(self, action):
         with self.lock:
+            if action in ('guest_on', 'guest_off'):
+                return self.accept_guest(action)
             if action not in ('optimize', 'verify'):
                 return 'invalid_command'
             reason = self.reason(action)
@@ -150,12 +203,14 @@ class Controller:
             job, self.pending = self.pending, None
             if not job:
                 return None
+            self.active_job = job
             if self.clock() > job['expires_at'] or not self.reachable():
                 self.finish({'state': 'request_expired'})
                 return None
             self.busy = True
             self.phase = 'starting'
-            self.control['last_request'] = 'running'
+            if not job['action'].startswith('guest_'):
+                self.control['last_request'] = 'running'
             return job
 
     def progress(self, report):
@@ -166,6 +221,18 @@ class Controller:
 
     def finish(self, result):
         with self.lock:
+            if self.active_job and self.active_job['action'].startswith('guest_'):
+                self.busy = False
+                self.phase = 'idle'
+                self.active_job = None
+                if result.get('observed'):
+                    self.guest_observed = result['observed']
+                try:
+                    self.guest.finish(result)
+                except Exception:
+                    self.fault = 'guest_storage_error'
+                return
+            self.active_job = None
             report = result.get('report', result)
             if report.get('request_id'):
                 self.progress(report)
@@ -202,6 +269,10 @@ class Controller:
                 state = 'pending'
             elif self.busy and self.phase in ('starting', 'preflight_reserved'):
                 state = 'verifying' if self.control['last_action'] == 'verify' else 'analyzing'
+            if self.active_job and self.active_job['action'].startswith('guest_'):
+                state = 'guest_switching'
+            guest = self.guest_snapshot()
+            guest_reason = self.guest_reason()
             out = {
                 'ready': reason == 'ready', 'verify_ready': self.reason('verify') == 'ready',
                 'blocked_reason': reason, 'busy': self.busy or self.pending is not None,
@@ -217,6 +288,16 @@ class Controller:
                 'channels_changed': comparison.get('observed_channels_changed'),
                 'channels_at': iso(channels.get('updated_at', 0)),
                 'performance_at': iso(self.monitor.get('diagnostics', {}).get('performance', {}).get('updated_at', 0)),
+                'guest_enabled': guest.get('enabled'),
+                'guest_available': (guest_wifi.enabled(self.options) and self.reachable()
+                                    and self.options.get('tmp_enabled', False) and self.options.get('mqtt_commands_enabled', False)
+                                    and guest.get('state') == 'available'
+                                    and self.clock() - guest.get('updated_at', 0) <= max(60, self.options.get('poll_seconds', 30) + 30)),
+                'guest_details': {'bands': guest.get('bands', {}), 'observed_at': iso(guest.get('updated_at', 0)),
+                                  'result': self.guest.state['result'], 'blocked_reason': guest_reason,
+                                  'verification_scope': 'main_deco', 'request_id': self.guest.state['request_id'],
+                                  'write_attempted': self.guest.state['write_attempted'],
+                                  'next_allowed_at': iso(self.guest.state['next_allowed'])},
                 'details': {'request_id': r.get('request_id'), 'state': r.get('state'),
                             'last_request_id': self.control['last_id'], 'last_requested_action': self.control['last_action'],
                             'verification': verification.get('state'), 'api_code': r.get('apply_ack', {}).get('api_code'),

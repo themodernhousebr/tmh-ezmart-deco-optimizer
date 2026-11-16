@@ -25,8 +25,11 @@ configuration:
     name: Home Assistant entities
     description: Publishes buttons and sensors over MQTT. Disables the old M9 startup action.
   mqtt_commands_enabled:
-    name: Accept optimization requests
-    description: Allows Home Assistant buttons and automations to request actions. Disable to keep monitoring only.
+    name: Accept Home Assistant commands
+    description: Allows optimization and, when enabled, guest Wi-Fi commands. Disable to keep monitoring only.
+  guest_control_enabled:
+    name: M9 — guest Wi-Fi control (pilot)
+    description: Adds a switch for the existing 2.4 and 5 GHz guest network, with observed state confirmation. M9 V2 firmware 1.9.1 AP only; hardware validation pending. Disabled by default.
   mqtt_host:
     name: Advanced — alternative MQTT server
     description: Leave absent or empty to obtain the Mosquitto connection automatically from Supervisor.
