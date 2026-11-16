@@ -316,3 +316,9 @@ Inspeção offline da imagem X50 1.8.4 já obtida: em `tmpsvr`, registros ELF64 
 Controlador WLAN SHA-256 `b88c86ddf067769ecaaf98e316e8153ffc429d97e59a1bc516cc46d5de24b11b`: callback de escrita, linhas originais 118–964, aceita flags por banda e atualização parcial. `host_isolation` explícito é convertido para a configuração existente, evitando o ramo Router que pode atribuir isolamento ao omiti-lo; SSID/senha/VLAN/duração ficam fora do comando. Leitura completa 983–1452 retorna os campos necessários à comparação. As configurações sensíveis permanecem em memória. Inspeção estática e testes simulados não equivalem à validação física.
 
 O piloto 0.11 usa o transporte autenticado já existente, uma escrita 0x4008 por sessão autorizada, leituras 0x4009 para confirmação e nenhuma chamada ACS nessa operação. M9 conserva seu transporte; X50 conserva a verificação do certificado. A habilitação guest é opcional e exige perfil exato. Validação física de X50 permanece pendente.
+
+### Inventário TMP fragmentado: checksum integral (0.11.0-dev.6)
+
+Foi observada uma resposta de inventário com business 1/2, opcode 0x400F, tipo 5, erro 0, primeiro fragmento de 8156 bytes e total de 10528 bytes, mas checksum diferente do fragmento isolado. Isso sustenta testar a hipótese de checksum da mensagem integral, sem prová-la antes de obter os fragmentos restantes. O leitor agora admite essa hipótese apenas em respostas fragmentadas, exige o mesmo checksum declarado ao longo dos fragmentos e confere o CRC da mensagem completa antes de devolver bytes para interpretação. CRC externo, CCM, limites, offsets, transação e opcode continuam obrigatórios. O modo anterior por fragmento é preservado.
+
+Testes locais incluem sessão criptografada simulada, inventário maior que 8156 bytes, checksum integral válido, checksum integral incorreto e mudança do checksum entre fragmentos. Confirmação em equipamento permanece pendente.

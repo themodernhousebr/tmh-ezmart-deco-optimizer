@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0-dev.6
+
+- Leitor TMP aceita fragmentos com checksum da mensagem completa, exigindo o mesmo checksum nos fragmentos e validação final antes de interpretar os dados. Preserva checksum por fragmento, CRC externo, autenticação CCM, limites e correlação de transação. Hipótese de compatibilidade para inventários maiores; confirmação física pendente.
+
 ## 0.11.0-dev.5
 
 - Respostas TMP rejeitadas incluem metadados numéricos de versão, tamanho e fragmentação e resultados booleanos de integridade, sem conteúdo ou identificadores. Mantém todas as validações; não aceita respostas inválidas nem reenvia comandos.

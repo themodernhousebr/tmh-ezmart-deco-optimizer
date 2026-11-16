@@ -514,8 +514,10 @@ class ReadOnlyPeer:
     """Independent framed TMP server over CCM; all traffic stays in memory."""
 
     def __init__(self, mutate_wire=None, mutate_tmp=None, api_error=False,
-                 responses=None, on_request=None, allow_apply=False, allow_guest=False):
+                 responses=None, on_request=None, allow_apply=False, allow_guest=False,
+                 whole_crc=False, fragment_size=47):
         self.mutate_wire, self.mutate_tmp = mutate_wire, mutate_tmp
+        self.whole_crc, self.fragment_size = whole_crc, fragment_size
         self.api_error = api_error
         self.responses = responses or {}
         self.on_request = on_request
@@ -583,9 +585,9 @@ class ReadOnlyPeer:
         if kind == 4:
             previous_op, previous_tx, full = self.remainder
             assert (op, tx) == (previous_op, previous_tx)
-            assert body == b"" and total == 0 and offset == 47
+            assert body == b"" and total == 0 and 0 < offset < len(full)
             self.pulls.append(op)
-            response = self.tmp_response(op, tx, full[offset:], len(full), offset)
+            response = self.tmp_response(op, tx, full[offset:] if self.fragment_size == 47 else full[offset:offset+self.fragment_size], len(full), offset)
         else:
             assert kind == 2 and offset == 0 and total == len(body)
             self.requests.append(op)
@@ -628,7 +630,12 @@ class ReadOnlyPeer:
                 message = self.responses.get(op, message)
                 full = message if isinstance(message, bytes) else json.dumps(message).encode()
                 self.remainder = (op, tx, full)
-                response = self.tmp_response(op, tx, full[:47], len(full))
+                response = self.tmp_response(op, tx, full[:self.fragment_size], len(full))
+        if self.whole_crc and op != 1:
+            payload = bytearray(response[16:])
+            payload[8:12] = zlib.crc32(full).to_bytes(4, 'big')
+            outer_crc = zlib.crc32(response[:12] + bytes.fromhex('5a6b7c8d') + payload)
+            response = response[:12] + outer_crc.to_bytes(4, 'big') + payload
         if self.mutate_tmp:
             response = self.mutate_tmp(response)
         # Exercise both stream splitting and coalescing across TPAP frames,
@@ -733,6 +740,45 @@ class ReadOnlyProbeTests(unittest.TestCase):
                     self.assertEqual(detail['offset'], 0)
                     self.assertEqual(detail['chunk_bytes'], detail['total_bytes'])
                 self.assertEqual(peer.requests, [1])
+
+    def test_large_inventory_with_complete_message_crc_and_real_fragment_size(self):
+        devices = {'error_code': 0, 'result': {'device_list': [
+            {'device_model': 'X50', 'hardware_ver': '1.30',
+             'software_ver': '1.8.4 Build 26051413 Rel. 27460', 'role': 'master',
+             'private_padding': 'PRIVATE'*2000}]}}
+        peer = ReadOnlyPeer(whole_crc=True, fragment_size=8156, responses={0x400F: devices})
+        result, _, peer = self.run_peer(peer)
+        self.assertEqual(result['state'], 'readonly_verified')
+        self.assertEqual(peer.requests, [1, 0x40A0, 0x4009, 0x400F])
+        self.assertIn(0x400F, peer.pulls)
+        self.assertEqual(result['reads']['devices']['data']['nodes'][0]['hardware'], '1.30')
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_complete_message_crc_must_stay_constant_across_fragments(self):
+        def change_second_fragment(frame):
+            payload = bytearray(frame[16:])
+            if int.from_bytes(payload[16:20], 'big') > 0:
+                payload[8:12] = (int.from_bytes(payload[8:12], 'big') ^ 1).to_bytes(4, 'big')
+                outer = zlib.crc32(frame[:12] + bytes.fromhex('5a6b7c8d') + payload)
+                return frame[:12] + outer.to_bytes(4, 'big') + payload
+            return frame
+        result, _, _ = self.run_peer(ReadOnlyPeer(whole_crc=True, mutate_tmp=change_second_fragment))
+        self.assertEqual(result['protocol_error'], 'tmp_business_invalid')
+        self.assertNotIn('mode', result['reads'])
+
+    def test_full_message_crc_corruption_never_exports_inventory(self):
+        def corrupt_inventory_crc(frame):
+            payload = bytearray(frame[16:])
+            if int.from_bytes(payload[2:4], 'big') == 0x400F:
+                crc = int.from_bytes(payload[8:12], 'big') ^ 1
+                payload[8:12] = crc.to_bytes(4, 'big')
+                outer = zlib.crc32(frame[:12] + bytes.fromhex('5a6b7c8d') + payload)
+                return frame[:12] + outer.to_bytes(4, 'big') + payload
+            return frame
+        result, _, peer = self.run_peer(ReadOnlyPeer(whole_crc=True, mutate_tmp=corrupt_inventory_crc))
+        self.assertEqual(result['protocol_error'], 'tmp_message_checksum_mismatch')
+        self.assertNotIn('devices', result['reads'])
+        self.assertEqual(peer.requests.count(0x400F), 1)
 
     def test_api_failure_does_not_claim_all_reads_verified(self):
         result, _, peer = self.run_peer(ReadOnlyPeer(api_error=True))

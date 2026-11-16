@@ -180,7 +180,7 @@ def connection_diagnostic(result):
     stages = {'tmp_allocate', 'read_mode', 'read_channels', 'read_devices', 'complete'}
     if result.get('stage') in stages:
         report['stage'] = result['stage']
-    errors = {'tmp_request_rejected', 'tmp_fragment_invalid', 'tmp_result_too_large',
+    errors = {'tmp_message_checksum_mismatch', 'tmp_request_rejected', 'tmp_fragment_invalid', 'tmp_result_too_large',
               'tmp_empty_fragment', 'tmp_frame_limit', 'unexpected_tmp_header',
               'invalid_tmp_length', 'tmp_checksum_mismatch', 'tmp_business_invalid',
               'tmp_response_mismatch', 'response_truncated', 'invalid_tmp_session',

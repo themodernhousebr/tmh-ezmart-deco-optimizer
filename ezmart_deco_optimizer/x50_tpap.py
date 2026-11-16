@@ -484,6 +484,7 @@ class TMPReader:
         self.send(opcode, body)
         result = bytearray()
         expected_total = None
+        whole_crc = None
         for _ in range(512):
             prefix = self.channel.exact(4)
             if prefix == b"\x01\x01\x04\x00":
@@ -502,7 +503,11 @@ class TMPReader:
                 raise ProtocolError("tmp_checksum_mismatch")
             version, subversion, returned, kind, error, tx, crc, total, offset = struct.unpack_from(">BBHBBHIII", payload)
             chunk = payload[20:]
-            if (version, subversion) != (1, 2) or zlib.crc32(chunk) != crc:
+            fragmented_whole_crc = (version, subversion) == (1, 2) and (
+                whole_crc is not None or (not result and total > len(chunk) > 0 and offset == 0))
+            if ((version, subversion) != (1, 2)
+                    or (whole_crc is not None and crc != whole_crc)
+                    or (whole_crc is None and zlib.crc32(chunk) != crc and not fragmented_whole_crc)):
                 # Numeric framing metadata only, no body, CRC value or device identifiers.
                 self.channel.report['tmp_business_diagnostic'] = {
                     'version': version, 'subversion': subversion,
@@ -521,11 +526,17 @@ class TMPReader:
             if (total > MAX_TMP_RESULT or offset != len(result)
                     or (expected_total is not None and total != expected_total)):
                 raise ProtocolError("tmp_fragment_invalid")
+            if whole_crc is None and zlib.crc32(chunk) != crc:
+                # Some devices advertise the complete message CRC in every fragment.
+                # Outer TMP CRC and authenticated CCM still protect each fragment.
+                whole_crc = crc
             expected_total = total
             result.extend(chunk)
             if len(result) > MAX_TMP_RESULT or (total and len(result) > total):
                 raise ProtocolError("tmp_result_too_large")
             if total == 0 or len(result) == total:
+                if whole_crc is not None and zlib.crc32(result) != whole_crc:
+                    raise ProtocolError('tmp_message_checksum_mismatch')
                 return bytes(result)
             if not chunk:
                 raise ProtocolError("tmp_empty_fragment")
