@@ -161,6 +161,10 @@ def run_probe(options, data, save, *, should_stop=None, wait=None, guest_job=Non
         return {'state': 'action_in_progress'}
 
 
+class AuthenticatedReadUnavailable(ValueError):
+    """Password proof succeeded; polling failure must not imply bad credentials."""
+
+
 def connection_diagnostic(result):
     """Only fixed public states and typed booleans; never raw protocol messages."""
     states = {'authentication_rejected', 'server_proof_mismatch', 'readonly_incomplete',
@@ -173,6 +177,19 @@ def connection_diagnostic(result):
                 'session_token_received'):
         if type(result.get(key)) is bool:
             report[key] = result[key]
+    stages = {'tmp_allocate', 'read_mode', 'read_channels', 'read_devices', 'complete'}
+    if result.get('stage') in stages:
+        report['stage'] = result['stage']
+    errors = {'tmp_request_rejected', 'tmp_fragment_invalid', 'tmp_result_too_large',
+              'tmp_empty_fragment', 'tmp_frame_limit', 'unexpected_tmp_header',
+              'invalid_tmp_length', 'tmp_checksum_mismatch', 'tmp_business_invalid',
+              'tmp_response_mismatch', 'response_truncated', 'invalid_tmp_session',
+              'channel_tag_mismatch', 'channel_checksum_mismatch', 'invalid_channel_length',
+              'repeated_channel_sequence', 'channel_receive_limit', 'unexpected_channel_header'}
+    if result.get('protocol_error') in errors:
+        report['protocol_error'] = result['protocol_error']
+    if type(result.get('tmp_error_code')) is int:
+        report['tmp_error_code'] = result['tmp_error_code']
     reads = result.get('reads', {})
     report['reads'] = {key: {'state': value.get('state') if value.get('state') in
                             ('available', 'unsupported', 'error', 'unavailable') else 'unrecognized',
@@ -201,6 +218,8 @@ class Client:
             diagnostic = connection_diagnostic(result)
             self.save(self.data / 'x50_connection_report.json', diagnostic)
             logging.getLogger(__name__).warning('Diagnóstico de conexão X50: %s', json.dumps(diagnostic))
+            if result.get('server_proof_verified') is True:
+                raise AuthenticatedReadUnavailable('x50_read_unavailable')
             raise ValueError('x50_read_unavailable')
         return result
 

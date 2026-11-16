@@ -90,7 +90,7 @@ class X50AppTests(unittest.TestCase):
 
     def test_connection_failure_reports_safe_stage_without_raw_secrets(self):
         result = {'state': 'readonly_incomplete', 'server_proof_verified': True,
-                  'password_proof_sent': True, 'protocol_error': 'PRIVATE',
+                  'password_proof_sent': True, 'protocol_error': 'PRIVATE', 'stage': 'read_devices',
                   'reads': {'devices': {'state': 'unavailable', 'api_code': -1, 'data': 'PRIVATE'},
                             'PRIVATE': {'state': 'PRIVATE'}}}
         with patch.object(backend.protocol, 'probe', return_value=result):
@@ -102,6 +102,10 @@ class X50AppTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', report + str(logs.output))
         self.assertTrue(json.loads(report)['server_proof_verified'])
         self.assertEqual(json.loads(report)['state'], 'readonly_incomplete')
+        self.assertEqual(json.loads(report)['stage'], 'read_devices')
+        safe = backend.connection_diagnostic({'state': 'protocol_error', 'protocol_error': 'tmp_request_rejected', 'tmp_error_code': 4})
+        self.assertEqual(safe['tmp_error_code'], 4)
+        self.assertEqual(safe['protocol_error'], 'tmp_request_rejected')
         self.assertEqual(backend.connection_diagnostic({'state': 'PRIVATE'})['state'], 'unrecognized_result')
 
     def control(self):
@@ -320,6 +324,26 @@ class X50AppTests(unittest.TestCase):
         sdk.DecoClient.assert_not_called()
         action.assert_not_called()
         self.assertEqual(probe.call_count, 1)
+
+    def test_authenticated_read_failure_uses_poll_delay_without_clearing_auth_guard(self):
+        run.save(self.data / 'options.json', self.options)
+        original_save = run.save
+        def save(path, value):
+            original_save(path, value)
+            if path.name == 'state.json' and (self.data / 'failed').exists():
+                self.stop.set()
+        def fail():
+            (self.data / 'failed').write_text('1')
+            raise backend.AuthenticatedReadUnavailable()
+        client = MagicMock()
+        client.login.side_effect = fail
+        sdk = SimpleNamespace(DecoClient=MagicMock())
+        with patch.dict(sys.modules, {'tplink_deco_api': sdk}), \
+                patch.object(run, 'Path', return_value=self.data), patch.object(run, 'STOP', self.stop), \
+                patch.object(run, 'save', side_effect=save), patch.object(run.time, 'time', return_value=1000), \
+                patch.object(mqtt_bridge, 'Bridge'), patch.object(backend, 'Client', return_value=client):
+            self.assertEqual(run.main(), 0)
+        self.assertEqual(json.loads((self.data / 'state.json').read_text())['next_login'], 1060)
 
     def test_missing_model_keeps_existing_m9_runtime(self):
         options = dict(host='192.168.68.4', password='PRIVATE', mqtt_enabled=True, tmp_enabled=False)

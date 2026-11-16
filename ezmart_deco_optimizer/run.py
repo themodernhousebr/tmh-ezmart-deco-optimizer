@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.3'
+VERSION = '0.11.0-dev.4'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -236,7 +236,15 @@ def main():
                     next_poll = 0
                     LOG.info('%s autenticado; monitoramento somente leitura.',
                              'X50 TPAP/TLS' if model == 'x50' else 'HTTPS')
-                except Exception:
+                except Exception as error:
+                    if model == 'x50':
+                        from x50_backend import AuthenticatedReadUnavailable
+                        if isinstance(error, AuthenticatedReadUnavailable):
+                            client = None
+                            due = time.time() + interval
+                            save(state, {'next_login': due})
+                            LOG.warning('X50 autenticado, mas leitura incompleta; nova consulta em %s segundos. Nenhum comando enviado.', interval)
+                            continue
                     client = None
                     due = time.time() + COOLDOWN
                     save(state, {'next_login': due})

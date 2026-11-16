@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0-dev.4
+
+- Diagnóstico X50 inclui etapa exata e códigos de protocolo permitidos, sem mensagens arbitrárias. Falha de leitura após prova de senha confirmada usa o intervalo de consultas; rejeição ou incerteza de autenticação mantém a proteção de 15 minutos. Não altera a interpretação das respostas nem libera ações sem inventário validado.
+
 ## 0.11.0-dev.3
 
 - Falhas de conexão X50 agora registram um diagnóstico filtrado com estado da conexão, confirmações de autenticação e códigos de leitura. Não expõe credenciais ou respostas brutas e mantém os intervalos de proteção.
