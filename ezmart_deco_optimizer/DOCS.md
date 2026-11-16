@@ -275,9 +275,9 @@ Mantenha as opções MQTT válidas da instalação. `username` usa `admin` por p
 
 Após salvar e iniciar, compartilhe `Resumo da Mesh` e o nome da instalação. Campos `hardware` e `role` aparecem quando informados e reconhecidos; MAC, nome do cliente, apelido, identificadores e respostas brutas não são publicados. `m5_readonly_pilot` significa que ações estão deliberadamente bloqueadas nesta etapa. Mesmo ativar os campos de comandos não libera otimização, controle de visitantes, ações de inicialização ou transporte TMP. A leitura independente de canais pode não ser oferecida em todas as revisões; isso não deve impedir a coleta do inventário.
 
-## M5 — piloto de ações (0.11.0-dev.12)
+## M5 — piloto de ações (atualizado na 0.11.0-dev.14)
 
-Perfis exatos: M5 hardware **3.0 e 3.2**, firmware **1.9.5 Build 20260602 Rel. 25369**, em **AP/FAP**. Monitoramento HTTP observado; ações SSH/TMP aguardam validação física. Esta versão substitui o bloqueio geral de ações da etapa de coleta 0.11.0-dev.11 por bloqueios de perfil.
+Perfis exatos: M5 hardware **3.0 e 3.2**, firmware **1.9.5 Build 20260602 Rel. 25369**, em **Router/AP**. Monitoramento HTTP observado; ações SSH/TMP aguardam validação física. Esta versão substitui o bloqueio geral de ações da etapa de coleta 0.11.0-dev.11 por bloqueios de perfil.
 
 Preserve IP, senha HTTP, MQTT e históricos. Mantenha `deco_model: m5` e preencha `tmp_email` e `tmp_password` com a conta proprietária desta rede. Configure:
 
@@ -298,3 +298,7 @@ O nome histórico m9_acs identifica o fluxo compartilhado, sem mudar o modelo pa
 Antes da análise ACS, inventário e modo são lidos novamente pelo TMP. A porta de metadados só permite 0x400F e 0x40A0 e não habilita escrita. Visitantes também exige perfil e configuração completa antes de enviar somente enable/isolation. Uma análise negativa não aplica canais; uma positiva pode interromper temporariamente o Wi-Fi. Mantém reserva persistente, verificação posterior e ausência de replay.
 
 Desative automações que comandem o app durante os testes. Conclua um ciclo, teste uma mudança de visitantes e confirme no app Deco; aguarde 60 segundos após conclusão e teste a inversa. Depois solicite uma única otimização e aguarde o resultado completo. Recomendação negativa valida apenas análise; resultado incerto exige investigação/verificação, sem repetir aplicação.
+
+### M5: modo de sistema e workmode são campos distintos
+
+A partir da 0.11.0-dev.14, `Resumo da Mesh.mode` do M5 usa `DeviceMode.sysmode`, Router ou AP. `workmode` mantém o campo separado da condição de malha, por exemplo FAP. FAP sozinho não comprova funcionamento em bridge/AP. A consulta TMP 0x40A0 expõe o modo de sistema em `result.mode`, e a conferência ao vivo aceita somente Router ou AP, além dos demais campos exatos de perfil. Ausência de sysmode reconhecido no HTTP deixa o perfil indisponível, sem inferir Router ou AP a partir de FAP. Esta correção não altera a projeção de modo existente no M9 ou X50.

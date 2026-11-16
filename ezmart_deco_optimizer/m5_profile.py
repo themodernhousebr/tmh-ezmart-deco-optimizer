@@ -8,7 +8,7 @@ HARDWARE = frozenset(('3.0', '3.2'))
 
 def supported(model, hardware, firmware, mode):
     return (model == 'M5' and isinstance(hardware, str) and hardware in HARDWARE
-            and firmware == FIRMWARE and mode in ('AP', 'FAP'))
+            and firmware == FIRMWARE and mode in ('Router', 'AP'))
 
 
 def supported_snapshot(snapshot):

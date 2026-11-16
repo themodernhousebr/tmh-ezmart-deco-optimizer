@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0-dev.14
+
+- Corrige a distinção M5 entre workmode da malha (como FAP) e sysmode de sistema (Router/AP). O inventário mantém ambos separados e usa sysmode para validar o perfil.
+- A conferência TMP aceita Router/AP com os mesmos hardwares 3.0/3.2 e firmware exato 1.9.5. FAP não é tratado como equivalente a Router/AP nessa conferência. Sysmode ausente/desconhecido permanece bloqueado, sem fallback para workmode.
+- Projeções e perfis M9/X50 preservados. Ações M5 ainda em validação física.
+
 ## 0.11.0-dev.13
 
 - Recusa do perfil M5 antes de otimização inclui diagnóstico filtrado da leitura TMP: etapa, tipo de falha, código de API, perfil público reconhecido e metadados numéricos de enquadramento, conforme disponíveis.

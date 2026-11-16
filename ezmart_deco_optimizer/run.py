@@ -10,7 +10,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.11.0-dev.13'
+VERSION = '0.11.0-dev.14'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -103,7 +103,14 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
                     node['role'] = role
                 status['nodes'].append(node)
         else:
-            status['mode'] = result.workmode
+            if options.get('deco_model') == 'm5':
+                # workmode describes the mesh role; sysmode is Router vs AP.
+                workmode = getattr(result, 'workmode', None)
+                status['workmode'] = workmode if workmode in ('FAP', 'HAP', 'RE', 'AP') else 'unknown'
+                sysmode = getattr(result, 'sysmode', None)
+                status['mode'] = sysmode if sysmode in ('Router', 'AP') else 'unknown'
+            else:
+                status['mode'] = result.workmode
     for name in PROBES:
         if not (options.get('diagnose_' + name, False) or (options.get('mqtt_enabled', False) and name == 'channels')):
             continue
@@ -284,7 +291,7 @@ def main():
                         probe_results['tmp'] = {'updated_at': int(time.time()), **result}
                         status['diagnostics'] = dict(probe_results)
                         LOG.info('Diagnóstico tmp: %s', json.dumps(probe_results['tmp'], ensure_ascii=True))
-                    summary = {key: status[key] for key in ('nodes', 'mode', 'unsupported') if key in status}
+                    summary = {key: status[key] for key in ('nodes', 'mode', 'workmode', 'unsupported') if key in status}
                     if summary != previous_summary:
                         LOG.info('Resumo da Mesh: %s', json.dumps(summary, ensure_ascii=True))
                         previous_summary = summary

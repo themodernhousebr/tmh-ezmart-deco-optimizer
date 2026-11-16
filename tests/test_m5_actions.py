@@ -22,12 +22,12 @@ class M5GuestTests(unittest.TestCase):
         f.options['deco_model'] = 'm5'
         f.profile['device_list'][0].update(device_model='M5', hardware_ver='3.0',
                                          software_ver=m5_profile.FIRMWARE)
-        f.mode = {'mode':'FAP'}
+        f.mode = {'mode':'Router'}
         f.controller = ha_control.Controller(f.options, f.data, run.save, clock=lambda:f.now)
         def monitor(controller=None, raw=None):
             node = f.profile['device_list'][0]
             snapshot = {'nodes':[{'model':node['device_model'], 'hardware':node['hardware_ver'],
-                        'firmware':node['software_ver'], 'role':node['role']}], 'mode':'FAP',
+                        'firmware':node['software_ver'], 'role':node['role']}], 'mode':f.mode['mode'], 'workmode':'FAP',
                         'diagnostics':{'guest':dict(guest_wifi.project(raw or guest_fixture.wlan()),
                                                     updated_at=f.now)}}
             snapshot['profile_supported'] = m5_profile.supported_snapshot(snapshot)
@@ -66,7 +66,7 @@ class M5OptimizationTests(unittest.TestCase):
         def metadata(opcode):
             return json.dumps({'error_code':0, 'result':{'device_list':[{
                 'device_model':'M5', 'hardware_ver':hardware, 'software_ver':m5_profile.FIRMWARE,
-                'role':'master'}]} if opcode == 0x400f else {'mode':'FAP'}}).encode()
+                'role':'master'}]} if opcode == 0x400f else {'mode':'Router'}}).encode()
         reader.profile_request = Mock(side_effect=metadata)
         calls = [0]
         def channels():
@@ -115,12 +115,12 @@ class M5OptimizationTests(unittest.TestCase):
             with self.assertRaises(tmp_readonly.ProtocolError):
                 tmp_readonly.packet(opcode, b'{}', 1, 1, allow_profile_read=True)
 
-    def test_profiles_require_ap_exact_firmware_and_one_master(self):
-        self.assertTrue(m5_profile.supported('M5', '3.0', m5_profile.FIRMWARE, 'FAP'))
+    def test_profiles_require_routing_mode_exact_firmware_and_one_master(self):
+        self.assertTrue(m5_profile.supported('M5', '3.0', m5_profile.FIRMWARE, 'Router'))
         self.assertTrue(m5_profile.supported('M5', '3.2', m5_profile.FIRMWARE, 'AP'))
-        for model, hw, fw, mode in [('M5','3.2',m5_profile.FIRMWARE,'Router'),
-                                   ('M5','3.20',m5_profile.FIRMWARE,'FAP'),
-                                   ('M5','3.0','1.9.6','FAP'), ('M9Plus','3.0',m5_profile.FIRMWARE,'FAP')]:
+        for model, hw, fw, mode in [('M5','3.2',m5_profile.FIRMWARE,'FAP'),
+                                   ('M5','3.20',m5_profile.FIRMWARE,'Router'),
+                                   ('M5','3.0','1.9.6','Router'), ('M9Plus','3.0',m5_profile.FIRMWARE,'Router')]:
             self.assertFalse(m5_profile.supported(model, hw, fw, mode))
         self.assertFalse(m5_profile.supported_snapshot({'nodes':[], 'mode':'FAP'}))
 

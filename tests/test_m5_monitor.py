@@ -31,7 +31,7 @@ class M5MonitorTests(unittest.TestCase):
         client.get_device_list.return_value = [SimpleNamespace(device_model='M5',
             software_ver='1.9.5 Build 20260602 Rel. 25369', hardware_ver='3.20', role='master',
             mac='PRIVATE', nickname='PRIVATE')]
-        client.get_device_mode.return_value = SimpleNamespace(workmode='Router')
+        client.get_device_mode.return_value = SimpleNamespace(workmode='FAP', sysmode='Router')
         client.request.return_value = {'band2_4': {'radio': {'channel': 6}},
                                       'band5_1': {'radio': {'channel': 36}}}
         return client
@@ -44,6 +44,24 @@ class M5MonitorTests(unittest.TestCase):
         self.assertTrue(result['read_only'])
         self.assertFalse(result['profile_supported'])
         self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_http_mesh_workmode_does_not_override_router_system_mode(self):
+        client = self.client()
+        client.get_device_list.return_value[0].hardware_ver = '3.2'
+        result = run.collect(client, self.options, 1, set(), {}, {})
+        self.assertEqual(result['workmode'], 'FAP')
+        self.assertEqual(result['mode'], 'Router')
+        self.assertTrue(result['profile_supported'])
+
+    def test_missing_or_unknown_system_mode_never_falls_back_to_fap(self):
+        for value in (None, 'PRIVATE'):
+            client = self.client()
+            client.get_device_list.return_value[0].hardware_ver = '3.2'
+            client.get_device_mode.return_value = SimpleNamespace(workmode='FAP', sysmode=value)
+            result = run.collect(client, self.options, 1, set(), {}, {})
+            self.assertEqual(result['mode'], 'unknown')
+            self.assertFalse(result['profile_supported'])
+            self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_invalid_hardware_and_role_are_omitted(self):
         client = self.client()
