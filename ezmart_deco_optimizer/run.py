@@ -9,7 +9,7 @@ import threading
 import time
 from diagnostics import PROBES, probe, error_summary, transient_transport
 
-VERSION = '0.10.0-dev.2'
+VERSION = '0.10.0-dev.3'
 COOLDOWN = 900
 STOP = threading.Event()
 LOG = logging.getLogger('ezmart')
@@ -85,6 +85,10 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
                 disabled.add(method)
                 status[method] = 'unsupported'
                 continue
+            if transient_transport(error):
+                status[method] = {'state': 'error', **error_summary(error)}
+                LOG.warning('Ciclo %s: %s indisponível; continuando leituras independentes.', cycle, method)
+                continue
             raise
         if method == 'get_device_list':
             status['nodes'] = [{'model': item.device_model, 'firmware': item.software_ver} for item in result]
@@ -124,6 +128,7 @@ def collect(client, options, cycle, disabled, probe_results, probe_times):
         LOG.info('Diagnóstico %s: %s', name, json.dumps(result, ensure_ascii=True))
     status['diagnostics'] = dict(probe_results)
     status['unsupported'] = sorted(disabled)
+    status['available'] = 'nodes' in status and 'mode' in status
     return status
 
 

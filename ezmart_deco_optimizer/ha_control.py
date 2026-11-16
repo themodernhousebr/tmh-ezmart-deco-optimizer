@@ -76,9 +76,8 @@ class Controller:
     def set_monitor(self, status, healthy):
         with self.lock:
             self.healthy = healthy
-            if healthy:
-                self.monitor = status
-                self.monitor_at = self.clock()
+            self.monitor = status
+            self.monitor_at = self.clock() if status else 0
 
     def reachable(self):
         return self.healthy and self.clock() - self.monitor_at <= max(60, self.options.get('poll_seconds', 30) + 30)
@@ -131,6 +130,14 @@ class Controller:
         current = self.monitor.get('diagnostics', {}).get('guest', {})
         return self.guest_observed if self.guest_observed.get('updated_at', 0) > current.get('updated_at', 0) else current
 
+    def guest_readable(self):
+        # Only a current WLAN observation can enable guest control, even when
+        # inventory failed. An authentication/global failure clears monitor.
+        observed = self.monitor.get('diagnostics', {}).get('guest', {})
+        return (observed.get('state') == 'available'
+                and self.clock() - observed.get('updated_at', 0)
+                <= max(60, self.options.get('poll_seconds', 30) + 30))
+
     def guest_reason(self):
         if not guest_wifi.enabled(self.options):
             return 'guest_control_disabled'
@@ -142,7 +149,7 @@ class Controller:
         if self.busy or self.pending:
             return 'busy'
         observed = self.guest_snapshot()
-        if (not self.reachable() or observed.get('state') != 'available'
+        if (not self.guest_readable() or observed.get('state') != 'available'
                 or self.clock() - observed.get('updated_at', 0) > max(60, self.options.get('poll_seconds', 30) + 30)):
             return 'guest_monitor_unavailable'
         try:
@@ -282,14 +289,14 @@ class Controller:
                 'last_action_at': iso(r.get('finished_at', r.get('started_at', 0))),
                 'next_allowed_at': iso(self.control['next_allowed']),
                 'monitor_at': iso(self.monitor_at),
-                'node_count': len(self.monitor.get('nodes', [])) if self.monitor_at else None,
+                'node_count': len(self.monitor['nodes']) if 'nodes' in self.monitor else None,
                 'mode': self.monitor.get('mode', 'unknown'),
                 'need_optimize': preflight.get('need_optimize'),
                 'channels_changed': comparison.get('observed_channels_changed'),
                 'channels_at': iso(channels.get('updated_at', 0)),
                 'performance_at': iso(self.monitor.get('diagnostics', {}).get('performance', {}).get('updated_at', 0)),
                 'guest_enabled': guest.get('enabled'),
-                'guest_available': (guest_wifi.enabled(self.options) and self.reachable()
+                'guest_available': (guest_wifi.enabled(self.options) and self.guest_readable()
                                     and self.options.get('tmp_enabled', False) and self.options.get('mqtt_commands_enabled', False)
                                     and guest.get('state') == 'available'
                                     and self.clock() - guest.get('updated_at', 0) <= max(60, self.options.get('poll_seconds', 30) + 30)),

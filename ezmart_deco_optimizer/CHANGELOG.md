@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0-dev.3
+
+- Falhas transitórias no inventário/modo M9 não interrompem as demais leituras do ciclo. Visitantes fica disponível somente com leitura WLAN recente, independentemente do inventário.
+- Inventário ausente não vira contagem zero; otimização continua bloqueada enquanto o monitoramento completo estiver indisponível. Falhas de autenticação continuam interrompendo o ciclo.
+- Não modifica os comandos de visitantes, não inicia ações automaticamente e não mascara falhas na própria leitura WLAN.
+
 ## 0.10.0-dev.2
 
 - Corrige o bloqueio `guest_configuration_unavailable` no controle de visitantes M9: a consulta HTTPS de monitoramento não fornece isolamento, necessário para preservar a configuração ao escrever. A preparação e a confirmação agora usam a leitura WLAN completa pelo mesmo canal TMP autenticado.

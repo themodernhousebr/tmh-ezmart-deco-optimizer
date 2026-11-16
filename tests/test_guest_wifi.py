@@ -328,6 +328,43 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(client.request.call_args.args, ('admin/wireless', 'wlan', {'operation': 'read'}))
         active.assert_not_called()
 
+    def test_inventory_timeout_does_not_block_fresh_guest_reading(self):
+        client = SimpleNamespace(get_device_list=Mock(side_effect=TimeoutError('PRIVATE')),
+                                 get_device_mode=lambda: SimpleNamespace(workmode='FAP'),
+                                 request=Mock(return_value=wlan(True)))
+        status = run.collect(client, self.options, 1, set(), {}, {})
+        self.assertNotIn('nodes', status)
+        self.assertNotIn('PRIVATE', json.dumps(status))
+        status['diagnostics']['guest']['updated_at'] = self.now
+        self.controller.set_monitor(status, False)
+        self.assertTrue(self.controller.view()['guest_available'])
+        self.assertIsNone(self.controller.view()['node_count'])
+        self.assertEqual(self.controller.reason(), 'monitor_unavailable')
+        self.assertEqual(self.controller.guest_reason(), 'ready')
+        self.now += 61
+        self.assertFalse(self.controller.view()['guest_available'])
+
+    def test_failed_wlan_or_global_failure_disables_guest_even_after_success(self):
+        self.controller.guest_observed = dict(guest.project(wlan(True)), updated_at=self.now)
+        self.controller.set_monitor({'diagnostics': {'guest': {'state': 'unavailable',
+                                                              'updated_at': self.now}}}, False)
+        self.assertFalse(self.controller.view()['guest_available'])
+        self.monitor()
+        self.assertTrue(self.controller.view()['guest_available'])
+        self.controller.set_monitor({}, False)
+        self.assertFalse(self.controller.view()['guest_available'])
+        self.assertEqual(self.controller.guest_reason(), 'guest_monitor_unavailable')
+
+    def test_inventory_auth_failure_still_aborts_independent_reads(self):
+        class AuthenticationError(Exception):
+            pass
+        client = SimpleNamespace(get_device_list=Mock(side_effect=AuthenticationError('PRIVATE')),
+                                 get_device_mode=Mock(), request=Mock())
+        with self.assertRaises(AuthenticationError):
+            run.collect(client, self.options, 1, set(), {}, {})
+        client.get_device_mode.assert_not_called()
+        client.request.assert_not_called()
+
     def test_worker_routes_guest_separately_from_optimize(self):
         self.controller.accept('guest_on')
         with patch.object(tmp, 'run_probe', return_value={'state': 'guest_enabled_verified'}) as probe:
