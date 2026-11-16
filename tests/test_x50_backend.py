@@ -108,6 +108,16 @@ class X50AppTests(unittest.TestCase):
         self.assertEqual(safe['protocol_error'], 'tmp_request_rejected')
         self.assertEqual(backend.connection_diagnostic({'state': 'PRIVATE'})['state'], 'unrecognized_result')
 
+    def test_framing_diagnostic_contains_only_bounded_numbers_and_booleans(self):
+        report = backend.connection_diagnostic({'state': 'protocol_error',
+            'tmp_business_diagnostic': {'version': 1, 'subversion': 2, 'opcode': 0x400f,
+                'chunk_bytes': 1000, 'total_bytes': 2000, 'offset': 0,
+                'version_matches': True, 'chunk_crc_matches': False,
+                'body': 'PRIVATE', 'crc': 'PRIVATE', 'error': 'PRIVATE', 'kind': -1}})
+        self.assertNotIn('PRIVATE', str(report))
+        self.assertNotIn('kind', report['tmp_business_diagnostic'])
+        self.assertFalse(report['tmp_business_diagnostic']['chunk_crc_matches'])
+
     def control(self):
         control = ha_control.Controller(self.options, self.data, run.save, clock=lambda: self.now)
         control.set_monitor({'profile_supported': True, 'nodes': [], 'mode': 'Router'}, True)

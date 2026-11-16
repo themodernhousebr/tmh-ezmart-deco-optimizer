@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0-dev.5
+
+- Respostas TMP rejeitadas incluem metadados numéricos de versão, tamanho e fragmentação e resultados booleanos de integridade, sem conteúdo ou identificadores. Mantém todas as validações; não aceita respostas inválidas nem reenvia comandos.
+
 ## 0.11.0-dev.4
 
 - Diagnóstico X50 inclui etapa exata e códigos de protocolo permitidos, sem mensagens arbitrárias. Falha de leitura após prova de senha confirmada usa o intervalo de consultas; rejeição ou incerteza de autenticação mantém a proteção de 15 minutos. Não altera a interpretação das respostas nem libera ações sem inventário validado.

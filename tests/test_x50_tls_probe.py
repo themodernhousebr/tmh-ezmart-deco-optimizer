@@ -725,6 +725,13 @@ class ReadOnlyProbeTests(unittest.TestCase):
             with self.subTest(code=code):
                 result, _, peer = self.run_peer(ReadOnlyPeer(mutate_tmp=changed(field, value)))
                 self.assertEqual(result["protocol_error"], code)
+                if code == 'tmp_business_invalid':
+                    detail = result['tmp_business_diagnostic']
+                    self.assertTrue(detail['version_matches'])
+                    self.assertFalse(detail['chunk_crc_matches'])
+                    self.assertEqual(detail['opcode'], 1)
+                    self.assertEqual(detail['offset'], 0)
+                    self.assertEqual(detail['chunk_bytes'], detail['total_bytes'])
                 self.assertEqual(peer.requests, [1])
 
     def test_api_failure_does_not_claim_all_reads_verified(self):

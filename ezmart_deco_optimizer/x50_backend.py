@@ -190,6 +190,15 @@ def connection_diagnostic(result):
         report['protocol_error'] = result['protocol_error']
     if type(result.get('tmp_error_code')) is int:
         report['tmp_error_code'] = result['tmp_error_code']
+    framing = result.get('tmp_business_diagnostic')
+    if isinstance(framing, dict):
+        clean = {key: framing[key] for key in
+                 ('version', 'subversion', 'opcode', 'kind', 'error', 'chunk_bytes', 'total_bytes', 'offset')
+                 if type(framing.get(key)) is int and 0 <= framing[key] <= 0xffffffff}
+        clean.update({key: framing[key] for key in
+                      ('version_matches', 'chunk_crc_matches', 'assembled_crc_matches')
+                      if type(framing.get(key)) is bool})
+        report['tmp_business_diagnostic'] = clean
     reads = result.get('reads', {})
     report['reads'] = {key: {'state': value.get('state') if value.get('state') in
                             ('available', 'unsupported', 'error', 'unavailable') else 'unrecognized',

@@ -503,6 +503,15 @@ class TMPReader:
             version, subversion, returned, kind, error, tx, crc, total, offset = struct.unpack_from(">BBHBBHIII", payload)
             chunk = payload[20:]
             if (version, subversion) != (1, 2) or zlib.crc32(chunk) != crc:
+                # Numeric framing metadata only, no body, CRC value or device identifiers.
+                self.channel.report['tmp_business_diagnostic'] = {
+                    'version': version, 'subversion': subversion,
+                    'opcode': returned, 'kind': kind, 'error': error,
+                    'chunk_bytes': len(chunk), 'total_bytes': total, 'offset': offset,
+                    'version_matches': (version, subversion) == (1, 2),
+                    'chunk_crc_matches': zlib.crc32(chunk) == crc,
+                    'assembled_crc_matches': zlib.crc32(bytes(result) + chunk) == crc,
+                }
                 raise ProtocolError("tmp_business_invalid")
             if (returned, kind, tx) != (opcode, 5, self.transaction):
                 raise ProtocolError("tmp_response_mismatch")
