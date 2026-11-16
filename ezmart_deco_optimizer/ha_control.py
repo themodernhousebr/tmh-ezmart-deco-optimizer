@@ -153,7 +153,7 @@ class Controller:
         if self.busy or self.pending:
             return 'busy'
         try:
-            path = self.data / 'tmp_state.json'
+            path = self.data / ('x50_auth_state.json' if self.x50 else 'tmp_state.json')
             due = json.loads(path.read_text()).get('next_login', 0) if path.exists() else 0
             if not finite_time(due):
                 return 'invalid_tmp_state'
@@ -211,7 +211,7 @@ class Controller:
             if not job:
                 return None
             self.active_job = job
-            if self.clock() > job['expires_at'] or (self.x50 and not self.reachable()):
+            if self.clock() > job['expires_at'] or (self.x50 and not job['action'].startswith('guest_') and not self.reachable()):
                 self.finish({'state': 'request_expired'})
                 return None
             self.busy = True

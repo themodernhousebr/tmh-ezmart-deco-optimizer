@@ -209,7 +209,8 @@ def run_probe(options, data, save, clock=time.time, channel_snapshot=None, shoul
     action = 'read' if guest_job is not None else options.get('tmp_action', 'read')
     if guest_job is not None:
         from guest_wifi import enabled
-        if (not enabled(options) or not options.get('mqtt_enabled') or not options.get('mqtt_commands_enabled')
+        if (options.get('deco_model', 'm9_plus') != 'm9_plus'
+                or not enabled(options) or not options.get('mqtt_enabled') or not options.get('mqtt_commands_enabled')
                 or not options.get('tmp_enabled') or guest_control is None):
             return {'state': 'guest_control_disabled'}
     if action not in ('read', 'scan', 'optimize', 'verify'):

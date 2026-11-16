@@ -1,9 +1,10 @@
-"""M9 guest-only pilot: explicit commands, one write, observed state, no replay."""
+"""Deco guest-only control: explicit commands, one write, observed state, no replay."""
 import json
 import re
 import time
 
-from m9_actions import action_lock, finite_time, load_journal, target_hash
+from m9_actions import action_lock, finite_time
+import m9_actions
 
 BANDS = ('band2_4', 'band5_1')
 READ_DEVICES = 0x400F
@@ -15,7 +16,14 @@ FIRMWARE = '1.9.1 Build 20250612 Rel. 45690'
 
 
 def enabled(options):
-    return options.get('deco_model', 'm9_plus') == 'm9_plus' and options.get('guest_control_enabled') is True
+    return options.get('deco_model', 'm9_plus') in ('m9_plus', 'x50') and options.get('guest_control_enabled') is True
+
+
+def target_hash(options):
+    if options.get('deco_model') == 'x50':
+        from x50_backend import target_hash as target
+        return target(options)
+    return m9_actions.target_hash(options)
 
 
 def project(raw):
@@ -93,7 +101,7 @@ def read_result(reader, opcode):
     return document['result']
 
 
-def supported_profile(reader):
+def supported_profile(reader, model="m9_plus"):
     devices = read_result(reader, READ_DEVICES).get('device_list')
     mode = read_result(reader, READ_MODE).get('mode')
     if not isinstance(devices, list):
@@ -102,6 +110,10 @@ def supported_profile(reader):
     if len(masters) != 1:
         return False
     master = masters[0]
+    if model == 'x50':
+        return (master.get('device_model') == 'X50' and master.get('hardware_ver') == '1.30'
+                and master.get('software_ver') == '1.8.4 Build 26051413 Rel. 27460'
+                and mode == 'Router')
     return (master.get('device_model') == 'M9Plus'
             and re.fullmatch(r'2(?:\.[0-9]{1,2}){1,2}', str(master.get('hardware_ver', ''))) is not None
             and master.get('software_ver') == FIRMWARE and mode in ('AP', 'FAP'))
@@ -110,14 +122,18 @@ def supported_profile(reader):
 def optimization_block(options, data, now):
     """Guest writes must not overlap an unverified/recent channel application."""
     try:
-        _, journal = load_journal(data)
+        backend = m9_actions
+        if options.get('deco_model') == 'x50':
+            import x50_backend
+            backend = x50_backend
+        _, journal = backend.load_journal(data)
         target = target_hash(options)
         for entry in journal['actions'].values():
             r = entry['report']
             if entry['target_hash'] == target and r['apply_command_attempted']:
                 if r.get('verification', {}).get('state') != 'stable':
                     return 'previous_apply_unverified'
-                if now < r['apply_attempted_at'] + 900:
+                if now < r['apply_attempted_at'] + (1800 if options.get('deco_model') == 'x50' else 900):
                     return 'apply_cooldown'
     except Exception:
         return 'invalid_optimize_journal'
@@ -195,7 +211,7 @@ def execute(reader, options, data, control, job, should_stop=lambda: False,
         block = optimization_block(options, data, clock())
         if block:
             return {'state': block}
-        if not supported_profile(reader):
+        if not supported_profile(reader, options.get('deco_model', 'm9_plus')):
             return {'state': 'guest_profile_not_validated'}
         try:
             # The HTTPS admin/wireless view omits host_isolation. Use the full

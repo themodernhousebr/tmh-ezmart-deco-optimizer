@@ -408,6 +408,8 @@ class TMPReader:
         self.scan_transaction = None
         self.reserve_apply = None
         self.apply_transaction = None
+        self.allow_guest = False
+        self.guest_transaction = None
 
     def send(self, opcode, body, offset=0, pull=False):
         if opcode == ACS_SCAN and self.allow_scan:
@@ -428,6 +430,20 @@ class TMPReader:
             else:
                 self.apply_transaction = self.transaction
                 self.reserve_apply()  # Must finish durable storage before any bytes.
+        elif opcode == 0x4008 and self.allow_guest:
+            from guest_wifi import validate_params
+            if not pull:
+                document = json.loads(body, object_pairs_hook=unique_object)
+                if set(document) != {'config_version', 'params'}:
+                    raise ProtocolError('guest_payload_not_allowed')
+                validate_params(document['params'])
+            if pull:
+                if self.guest_transaction != self.transaction:
+                    raise ProtocolError('guest_pull_without_request')
+            elif self.guest_transaction is not None:
+                raise ProtocolError('guest_already_attempted')
+            else:
+                self.guest_transaction = self.transaction
         elif opcode not in (1, *READ_OPS.values()):
             raise ProtocolError("tmp_opcode_not_allowed")
         self.sequence += 1
@@ -444,11 +460,26 @@ class TMPReader:
         if opcode == ACS_APPLY and not pull:
             self.channel.report["apply_command_sent"] = True
 
+    def guest_request(self, opcode, params=None):
+        from guest_wifi import READ_OPS as GUEST_READ_OPS, WRITE_WLAN, validate_params
+        if not self.allow_guest or opcode not in (*GUEST_READ_OPS, WRITE_WLAN):
+            raise ProtocolError('guest_opcode_not_allowed')
+        if opcode == WRITE_WLAN:
+            validate_params(params)
+        elif params is not None:
+            raise ProtocolError('guest_read_params_not_allowed')
+        return self._exchange(opcode, 20, params or {})
+
     def request(self, opcode, timeout):
+        if opcode == 0x4008:
+            raise ProtocolError('tmp_opcode_not_allowed')
+        return self._exchange(opcode, timeout, {})
+
+    def _exchange(self, opcode, timeout, params):
         self.channel.deadline = time.monotonic() + timeout
         self.transaction += 1
         body = b"" if opcode == 1 else json.dumps({
-            "config_version": int(time.time() * 1000), "params": {}
+            "config_version": int(time.time() * 1000), "params": params
         }, separators=(",", ":")).encode()
         self.send(opcode, body)
         result = bytearray()
@@ -559,7 +590,7 @@ def project_read(name, body):
     return {"state": "available" if out else "unrecognized_response", "api_code": 0, "data": out}
 
 
-def read_information(tls, shared_key, timeout, result, allow_scan=False):
+def read_information(tls, shared_key, timeout, result, allow_scan=False, include_guest=False):
     result.update(stage="tmp_allocate", tmp_session_verified=False,
                   channel_frames_received=0, reads={})
     reader = TMPReader(TMPChannel(tls, shared_key, result), allow_scan=allow_scan)
@@ -570,7 +601,14 @@ def read_information(tls, shared_key, timeout, result, allow_scan=False):
     result["tmp_session_verified"] = True
     for name, opcode in READ_OPS.items():
         result["stage"] = "read_" + name
-        result["reads"][name] = project_read(name, reader.request(opcode, timeout))
+        body = reader.request(opcode, timeout)
+        result["reads"][name] = project_read(name, body)
+        if include_guest and name == 'channels':
+            import guest_wifi
+            document = json.loads(body, object_pairs_hook=unique_object)
+            if api_code(document) == 0 and isinstance(document.get('result'), dict):
+                result['guest'] = guest_wifi.project(document['result'])
+        del body
     complete = all(read["state"] == "available" for read in result["reads"].values())
     result.update(state="readonly_verified" if complete else "readonly_incomplete", stage="complete")
     return reader
@@ -699,7 +737,7 @@ def apply_information(reader, apply_timeout, result, checkpoint):
 def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None,
           read_info=False, scan_only=False, scan_timeout=120, optimize=False,
           apply_timeout=60, _checkpoint=None, _report=None,
-          _before_connect=None, _login_verified=None):
+          _before_connect=None, _login_verified=None, _guest_callback=None, _guest_read=False):
     # Literal unicast IPs avoid DNS delays and accidental broadcast discovery.
     address = ipaddress.ip_address(host)
     if address.is_unspecified or address.is_multicast:
@@ -732,6 +770,8 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
         crypto_modules()  # Missing dependency must not consume a device login attempt.
     if (read_info or scan_only or optimize) and password is None:
         raise ValueError("A leitura/análise exige autenticação com senha e certificado fixado.")
+    if (_guest_callback is not None or _guest_read) and (not read_info or scan_only or optimize):
+        raise ValueError('Guest control requires authenticated read-info mode.')
     result = {
         "probe_version": 6,
         "state": "not_connected",
@@ -808,7 +848,13 @@ def probe(host, timeout=8, expected_sha256=None, owner_email=None, password=None
                                 _login_verified()
                             if (read_info or scan_only or optimize) and shared_key is not None:
                                 reader = read_information(tls, shared_key, timeout, result,
-                                                          allow_scan=scan_only or optimize)
+                                                          allow_scan=scan_only or optimize, include_guest=_guest_read)
+                                if _guest_callback is not None and result['state'] == 'readonly_verified':
+                                    reader.allow_guest = True
+                                    try:
+                                        result['guest_action'] = _guest_callback(reader)
+                                    finally:
+                                        reader.allow_guest = False
                                 if scan_only or optimize:
                                     scan_information(reader, timeout, scan_timeout, result)
                                 if optimize:

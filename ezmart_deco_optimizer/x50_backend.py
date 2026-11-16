@@ -88,7 +88,23 @@ class LoginGuard:
             raise protocol.ActionStorageError() from None
 
 
-def run_probe(options, data, save, *, should_stop=None, wait=None, **unused):
+def run_probe(options, data, save, *, should_stop=None, wait=None, guest_job=None, guest_control=None, **unused):
+    if guest_job is not None:
+        import guest_wifi
+        if (not guest_wifi.enabled(options) or not options.get('mqtt_enabled')
+                or not options.get('mqtt_commands_enabled') or not options.get('tmp_enabled')
+                or guest_control is None):
+            return {'state': 'guest_control_disabled'}
+        configured = settings(options)
+        guard = LoginGuard(data, save, should_stop)
+        result = protocol.probe(configured['host'], timeout=configured['timeout'],
+                                expected_sha256=configured['expected_sha256'],
+                                owner_email=configured['owner_email'], password=configured['password'],
+                                read_info=True, _before_connect=guard.before, _login_verified=guard.verified,
+                                _guest_callback=lambda reader: guest_wifi.execute(reader, options, data,
+                                    guest_control, guest_job, should_stop=should_stop or (lambda: False), wait=wait))
+        return result.get('guest_action', {'state': 'guest_connection_failed',
+                                         'connection_state': result['state'], 'write_attempted': False})
     action = options.get('tmp_action')
     if action not in ('optimize', 'verify') or not options.get('tmp_enabled', False):
         return {'state': 'commands_disabled'}
@@ -98,10 +114,15 @@ def run_probe(options, data, save, *, should_stop=None, wait=None, **unused):
     guard = LoginGuard(data, save, should_stop)
     def progress(report):
         save(data / 'x50_optimize_report.json', report)
-    return protocol.run_action(**configured, request_id=options['tmp_optimize_request_id'].strip(),
-                               journal=data / 'x50_optimize_journal.json', verify_only=action == 'verify',
-                               _before_connect=guard.before, _login_verified=guard.verified,
-                               _progress=progress, _wait=wait, _should_stop=should_stop)
+    from m9_actions import action_lock
+    try:
+        with action_lock(data):
+            return protocol.run_action(**configured, request_id=options['tmp_optimize_request_id'].strip(),
+                                       journal=data / 'x50_optimize_journal.json', verify_only=action == 'verify',
+                                       _before_connect=guard.before, _login_verified=guard.verified,
+                                       _progress=progress, _wait=wait, _should_stop=should_stop)
+    except BlockingIOError:
+        return {'state': 'action_in_progress'}
 
 
 class Client:
@@ -113,9 +134,11 @@ class Client:
 
     def read(self):
         c = self.configured
+        import guest_wifi
         result = protocol.probe(c['host'], timeout=c['timeout'], expected_sha256=c['expected_sha256'],
                                 owner_email=c['owner_email'], password=c['password'], read_info=True,
-                                _before_connect=self.guard.before, _login_verified=self.guard.verified)
+                                _before_connect=self.guard.before, _login_verified=self.guard.verified,
+                                _guest_read=guest_wifi.enabled(self.options))
         if result['state'] != 'readonly_verified':
             # Fixed public error, never raw protocol/credentials.
             raise ValueError('x50_read_unavailable')
@@ -133,5 +156,6 @@ class Client:
                 'backend': 'x50_tpap', 'read_only': True,
                 'profile_supported': protocol.supported_target(result),
                 'nodes': reads['devices']['data']['nodes'], 'mode': reads['mode']['data']['mode'],
-                'diagnostics': {'channels': dict(reads['channels'], updated_at=now)},
+                'diagnostics': {'channels': dict(reads['channels'], updated_at=now),
+                                **({'guest': dict(result['guest'], updated_at=now)} if 'guest' in result else {})},
                 'unsupported': ['acs_periodic', 'performance', 'wifi_support']}

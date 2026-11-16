@@ -258,7 +258,7 @@ class AuthenticationProbeTests(unittest.TestCase):
     def run_server(self, password=PASSWORD, change_params=None, change_reply=None,
                    pin=PIN, send_error=None, read_info=False, channel_peer=None,
                    scan_only=False, scan_timeout=120, optimize=False, checkpoint=None, report=None,
-                   before_connect=None, login_verified=None):
+                   before_connect=None, login_verified=None, guest_callback=None, guest_read=False):
         """Independent verifier role, replying to each actual framed request.
 
         Never uses the production prover/transcript helpers to build its proof.
@@ -361,7 +361,8 @@ class AuthenticationProbeTests(unittest.TestCase):
                                  owner_email=self.EMAIL, password=password, read_info=read_info,
                                  scan_only=scan_only, scan_timeout=scan_timeout, optimize=optimize,
                                  _checkpoint=checkpoint, _report=report,
-                                 _before_connect=before_connect, _login_verified=login_verified)
+                                 _before_connect=before_connect, _login_verified=login_verified,
+                                 _guest_callback=guest_callback, _guest_read=guest_read)
         self.assertEqual(connect.call_count, 1)
         tls.__exit__.assert_called_once()
         for secret in (self.EMAIL, self.PASSWORD, password, "PRIVATE", "dev_confirm", "user_share",
@@ -513,11 +514,12 @@ class ReadOnlyPeer:
     """Independent framed TMP server over CCM; all traffic stays in memory."""
 
     def __init__(self, mutate_wire=None, mutate_tmp=None, api_error=False,
-                 responses=None, on_request=None, allow_apply=False):
+                 responses=None, on_request=None, allow_apply=False, allow_guest=False):
         self.mutate_wire, self.mutate_tmp = mutate_wire, mutate_tmp
         self.api_error = api_error
         self.responses = responses or {}
         self.on_request = on_request
+        self.allow_guest = allow_guest
         self.allow_apply = allow_apply
         self.sequence = 0x12345678
         self.client_sequences = []
@@ -589,7 +591,7 @@ class ReadOnlyPeer:
             self.requests.append(op)
             # Deliberately do not use the production allowlist to validate writes.
             assert (op in (1, 0x40A0, 0x4009, 0x400F) or (op == 0x424F and op in self.responses)
-                    or (op == 0x4250 and self.allow_apply))
+                    or (op == 0x4250 and self.allow_apply) or (op == 0x4008 and self.allow_guest))
             if self.on_request:
                 self.on_request(op)
             if op == 1:
@@ -597,7 +599,18 @@ class ReadOnlyPeer:
                 response = self.tmp_response(op, tx, b"a" * 32)
             else:
                 request = json.loads(body)
-                assert set(request) == {"config_version", "params"} and request["params"] == {}
+                assert set(request) == {"config_version", "params"}
+                if op == 0x4008:
+                    assert self.allow_guest
+                    params = request['params']
+                    assert set(params) == {'band2_4', 'band5_1'}
+                    for band in params:
+                        assert set(params[band]) == {'guest'}
+                        assert set(params[band]['guest']) == {'enable','host_isolation'}
+                        assert all(type(v) is bool for v in params[band]['guest'].values())
+                        self.responses[0x4009]['result'][band]['guest']['enable'] = params[band]['guest']['enable']
+                else:
+                    assert request['params'] == {}
                 content = {
                     0x40A0: {"mode": "Router", "owner": "PRIVATE"},
                     0x4009: {

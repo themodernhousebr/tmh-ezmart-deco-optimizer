@@ -100,7 +100,7 @@ def discovery(identity, base, version, session, model='m9_plus', guest_enabled=F
             if suffix == 'resultado':
                 config.update(json_attributes_topic=base + '/state', json_attributes_template='{{ value_json.details | tojson }}')
         messages.append(('homeassistant/' + domain + '/' + unique + '/config', config))
-    if model == 'm9_plus' and guest_enabled:
+    if model in ('m9_plus', 'x50') and guest_enabled:
         unique = 'ezmart_deco_' + identity + '_visitantes'
         config = {'name': 'Wi-Fi de visitantes', 'unique_id': unique,
                   'default_entity_id': 'switch.ezmart_deco_visitantes', 'device': device, 'icon': 'mdi:wifi',
@@ -198,7 +198,7 @@ class Bridge:
         for topic, value in discovery(self.identity, self.base, self.version, self.session,
                                       self.options.get('deco_model', 'm9_plus'), self.options.get('guest_control_enabled', False)):
             client.publish(topic, json.dumps(value, ensure_ascii=True), qos=1, retain=True)
-        if self.options.get('deco_model', 'm9_plus') != 'm9_plus' or not self.options.get('guest_control_enabled'):
+        if self.options.get('deco_model', 'm9_plus') not in ('m9_plus', 'x50') or not self.options.get('guest_control_enabled'):
             # Remove only our optional switch when the feature/model changes.
             client.publish('homeassistant/switch/ezmart_deco_' + self.identity + '_visitantes/config',
                            '', qos=1, retain=True)

@@ -2,11 +2,11 @@
 
 <img src="ezmart_deco_optimizer/icon.png" alt="The Modern House" width="128">
 
-**0.10.0-dev.5 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. A 0.10 acrescenta controle opcional de visitantes no M9; validação física desse novo recurso ainda pendente.
+**0.11.0-dev.1 — experimental.** Monitoramento e otimização sob demanda pelo Home Assistant, com transportes separados para **M9 Plus V2 em AP** e **X50 1.30 / 1.8.4 em Router**. Controle de visitantes validado no M9; a 0.11 prepara o piloto X50, ainda pendente de validação física.
 
 Cria um dispositivo MQTT com 22 entidades: botões para otimizar se necessário ou verificar a última aplicação, sensores de resultado, canais, horários, disponibilidade e bloqueios. O app só analisa/aplica após um pedido explícito, inclusive de uma automação escolhida por você. Aplica somente quando o Deco recomenda; não existe otimização periódica interna.
 
-O piloto opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). X50 ainda não oferece controle de visitantes.
+O piloto opcional de visitantes acrescenta `switch.ezmart_deco_visitantes` ao mesmo dispositivo, preservando as entidades existentes. [Configuração e limites do controle M9](ezmart_deco_optimizer/DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). A 0.11 acrescenta o mesmo interruptor no X50 1.30 / 1.8.4 Router, mediante habilitação explícita; validação física pendente.
 
 ## Instalar pela loja do Home Assistant
 

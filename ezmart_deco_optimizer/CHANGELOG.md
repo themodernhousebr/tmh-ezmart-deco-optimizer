@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0-dev.1
+
+- Controle de visitantes opt-in no X50 1.30 / 1.8.4 Build 26051413 Rel. 27460 Router. Reutiliza o interruptor MQTT e exige certificado fixado, autenticação mútua e perfil confirmado antes da escrita. Validação física X50 pendente.
+- Leitura completa WLAN e escrita parcial 0x4008: somente enable e isolamento já lido, para 2,4 e 5 GHz. Comparação de preservação em memória, uma tentativa, duas leituras de confirmação e nenhum replay após perda de resposta ou reinício.
+- Histórico guest vinculado ao IP/certificado X50; proteção própria de autenticação, intervalo guest de 60 s, bloqueio durante aplicação de canais não verificada ou intervalo X50 de 30 minutos. Otimização e guest compartilham exclusão de ações.
+- Monitoramento guest usa a leitura WLAN periódica existente e publica apenas booleanos. Sem ACS, sem ação na inicialização e sem mudança de SSID/senha no payload. M9 mantém transporte e controles existentes.
+
 ## 0.10.0-dev.5
 
 - Controles M9 disponíveis enquanto o app estiver conectado e comandos habilitados, independentemente de falhas no inventário ou leitura antiga. Disponibilidade MQTT passa a representar o serviço; sensores de prontidão e motivos de bloqueio mantêm intervalos e recusas.

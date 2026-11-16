@@ -2,7 +2,7 @@
 
 <img src="icon.png" alt="The Modern House" width="128">
 
-**0.10.0-dev.5** — monitoramento Deco e otimização sob demanda pelo Home Assistant.
+**0.11.0-dev.1** — monitoramento Deco e otimização sob demanda pelo Home Assistant.
 
 Cria um dispositivo MQTT com 22 entidades: botões para solicitar otimização ou verificar a última aplicação, disponibilidade, resultado, recomendação, canais, horários, inventário e CPU/memória. Cada pedido faz uma análise; aplica somente quando recomendado. Não há otimização por intervalo. Pedidos simultâneos, antigos ou dentro do intervalo mínimo são bloqueados, sem fila para executar depois.
 
@@ -12,6 +12,6 @@ O piloto M9 Plus V2 em AP validou uma aplicação na 0.7, com canal 5_2 de 149 p
 
 Segredos não são publicados. O Mosquitto do Supervisor é descoberto automaticamente. Instalação pela loja via [repositório personalizado](https://github.com/themodernhousebr/tmh-ezmart-deco-optimizer). Distribuição experimental; o Supervisor constrói a imagem localmente.
 
-A configuração nova mostra 10 campos principais; opções manuais e tempos são avançados e opcionais. Consulte [DOCS.md](DOCS.md) para preencher apenas os campos do seu modelo. Configurações M9 existentes são preservadas.
+A configuração nova mostra 11 campos principais; opções manuais e tempos são avançados e opcionais. Consulte [DOCS.md](DOCS.md) para preencher apenas os campos do seu modelo. Configurações M9 existentes são preservadas.
 
-A 0.10 adiciona um interruptor opcional de visitantes para o M9, com estado confirmado por leitura, preservando nome/senha e configurações da rede. Ative `guest_control_enabled` para o piloto. [Configuração e teste físico](DOCS.md#wi-fi-de-visitantes-no-m9--piloto-010). Validação física de visitantes pendente; recurso indisponível no X50 nesta etapa.
+O interruptor opcional de visitantes está validado no M9 e disponível para piloto X50 1.30 / 1.8.4 Router na 0.11. Ative `guest_control_enabled` para usar a rede existente, com confirmação por leitura. Validação física X50 pendente. [Configuração e limites](DOCS.md#wi-fi-de-visitantes-no-x50--piloto-011).

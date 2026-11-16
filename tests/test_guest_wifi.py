@@ -440,7 +440,7 @@ class GuestTests(unittest.TestCase):
         self.assertFalse(switch['retain'])
         self.assertEqual(json.loads(switch['payload_on']), {'action': 'guest_on', 'session': 'nonce'})
         self.assertEqual(json.loads(switch['payload_off'])['action'], 'guest_off')
-        self.assertEqual(len(discovery('id', 'base', 'version', 'nonce', model='x50', guest_enabled=True)), len(old))
+        self.assertEqual(len(discovery('id', 'base', 'version', 'nonce', model='x50', guest_enabled=True)), len(old) + 1)
 
     def test_mqtt_guest_commands_require_live_session_and_no_retain_or_dup(self):
         bridge = Bridge(self.options, self.data, run.save, self.controller, threading.Event(), 'test')
