@@ -45,6 +45,17 @@ class ControlTests(unittest.TestCase):
         self.assertTrue(run.startup_action_enabled(dict(self.options, mqtt_enabled=False)))
         self.assertFalse(run.startup_action_enabled(dict(self.options, mqtt_enabled=False, tmp_enabled=False)))
 
+    def test_five_minute_minimum_and_explicit_longer_settings(self):
+        for value, valid in ((299, False), (300, True), (600, True), (900, True), (True, False)):
+            options = dict(self.options, request_cooldown_seconds=value)
+            control = self.make(options)
+            self.assertEqual(control.fault is None, valid)
+            if valid:
+                self.assertEqual(control.cooldown, value)
+        options = dict(self.options)
+        options.pop('request_cooldown_seconds')
+        self.assertEqual(self.make(options).cooldown, 300)
+
     def test_admission_is_durable_and_second_request_never_queues(self):
         self.assertEqual(self.control.accept('optimize'), 'accepted')
         saved = json.loads((self.data/'automation_state.json').read_text())

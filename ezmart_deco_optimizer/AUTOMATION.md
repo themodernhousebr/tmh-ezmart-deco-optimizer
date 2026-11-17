@@ -13,7 +13,7 @@ A configuração mínima do X50 e os campos opcionais estão em [DOCS.md](DOCS.m
 ```yaml
 mqtt_enabled: true
 mqtt_commands_enabled: true
-request_cooldown_seconds: 900
+request_cooldown_seconds: 300
 mqtt_host: ""
 tmp_enabled: true
 tmp_scan_backend: m9_acs
@@ -95,7 +95,7 @@ A câmera indisponível é o motivo para pedir análise, não prova de interfer�
 
 O blueprint `examples/camera_until_confirmed.yaml` oferece a política de repetição solicitada para o piloto. Pode ser importado pela URL do arquivo no GitHub. Selecione `camera.cozinha` e confira os IDs padrão das entidades EZmart usados no YAML. Ele funciona com o app **0.8.0-dev.1 já instalado**; importar/editar a automação não exige rebuild.
 
-Após 3 minutos de `unavailable`, aguarda o app ficar disponível e registra os IDs anteriores. Solicita uma análise e eventual aplicação; se houver aplicação pendente de verificação, solicita somente a verificação. Entre tentativas aguarda 15 minutos, além de qualquer bloqueio do app (no X50, pelo menos 30 minutos entre pedidos optimize). Não remove bloqueios nem repete o mesmo comando de aplicação.
+Após 3 minutos de `unavailable`, aguarda o app ficar disponível e registra os IDs anteriores. Solicita uma análise e eventual aplicação; se houver aplicação pendente de verificação, solicita somente a verificação. Entre tentativas aguarda 15 minutos, além de qualquer bloqueio do app (o mínimo configurável do app é cinco minutos na 0.12.1). Não remove bloqueios nem repete o mesmo comando de aplicação.
 
 Encerra com sucesso somente quando o relatório e o último pedido têm o mesmo ID novo, o Deco aceitou a aplicação (`api_code: 0`) e a verificação está `stable`. Os resultados aceitos são `acknowledged_with_channel_change`, `acknowledged_without_observed_change` (M9) e `acknowledged_without_observed_channel_change` (X50): os dois últimos confirmam aceite e leituras estáveis, **sem afirmar que houve troca de canal ou ganho de desempenho**. Um novo pedido manual concorrente pode satisfazer essa condição; não há exclusividade da automação sobre o dispositivo.
 
@@ -106,7 +106,7 @@ Para validar, confira o rastreamento da automação: deve terminar no passo **No
 ## Controles de execução e recuperação
 
 - Uma tarefa por vez, executada na mesma sequência do monitoramento Deco. MQTT não acessa o Deco em uma segunda thread.
-- Intervalo mínimo persistido de 900 s no M9 e 1800 s no X50 entre pedidos optimize, mesmo quando não há recomendação. Configurável até 86400 s. O intervalo de aplicação já existente permanece adicional e não pode ser contornado com outro ID.
+- Intervalo padrão e mínimo persistido de 300 s no M9, M5 e X50 entre pedidos optimize, mesmo quando não há recomendação. Configurável até 86400 s. O intervalo de aplicação já existente permanece adicional e não pode ser contornado com outro ID.
 - Uma tarefa aceita precisa começar em até 60 s e com monitoramento disponível; caso contrário, é descartada. Não há fila persistente nem retomada de aplicação após reinício.
 - MQTT 5 com sessão limpa, sem fila de comandos offline, comandos QoS 0 e sem retenção. Mensagens retidas, marcadas como duplicadas ou pertencentes a outra conexão são ignoradas. Não criar automações que publiquem diretamente comandos retidos.
 - A identidade das entidades é persistida em `/data/mqtt_identity.json`. Discovery e estado podem ser retidos; comandos não. Reconexão e o nascimento do Home Assistant republicam entidades/estado, sem pedir otimização.

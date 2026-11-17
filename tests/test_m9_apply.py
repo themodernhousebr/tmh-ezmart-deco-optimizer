@@ -132,7 +132,11 @@ class ApplyTests(unittest.TestCase):
         reader = Reader()
         self.assertEqual(self.run_action(reader)['state'], 'apply_cooldown')
         self.assertEqual(reader.calls, [])
-        self.timer.value += 600
+        _, journal = actions.load_journal(self.data)
+        report = journal['actions']['apply-001']['report']
+        self.timer.value = report['apply_attempted_at'] + 299
+        self.assertEqual(actions.prepare(self.options, self.data, self.timer.now())[1]['state'], 'apply_cooldown')
+        self.timer.value += 1
         self.assertIsNone(actions.prepare(self.options, self.data, self.timer.now())[1])
 
     def test_lost_ack_is_not_success_even_with_observed_change(self):

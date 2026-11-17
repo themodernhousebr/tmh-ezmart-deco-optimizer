@@ -45,8 +45,8 @@ class Controller:
         self.path = data / 'automation_state.json'
         self.control = {'version': 1, 'next_allowed': 0, 'next_verify': 0,
                         'inflight': False, 'last_request': 'none', 'last_id': '', 'last_action': ''}
-        self.cooldown = options.get('request_cooldown_seconds', 600)
-        if type(self.cooldown) is not int or not 600 <= self.cooldown <= 86400:
+        self.cooldown = options.get('request_cooldown_seconds', 300)
+        if type(self.cooldown) is not int or not 300 <= self.cooldown <= 86400:
             self.fault = 'invalid_request_cooldown'
         try:
             if self.path.exists():

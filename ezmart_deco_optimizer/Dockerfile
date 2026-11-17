@@ -8,5 +8,5 @@ COPY run.py diagnostics.py tmp_readonly.py m9_actions.py ha_control.py mqtt_brid
 LABEL io.hass.name="EZmart Deco Optimizer" \
       io.hass.description="Deco on-demand optimization and Home Assistant MQTT entities" \
       io.hass.type="addon" \
-      io.hass.version="0.12.0"
+      io.hass.version="0.12.1"
 CMD ["python", "-u", "/app/run.py"]

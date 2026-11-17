@@ -201,18 +201,18 @@ class X50AppTests(unittest.TestCase):
             'next_verify':0, 'inflight':False, 'last_request':'apply_acknowledged',
             'last_id':'prior', 'last_action':'optimize'})
         control = self.control()
-        self.assertEqual(control.control['next_allowed'], report['started_at'] + 600)
+        self.assertEqual(control.control['next_allowed'], report['started_at'] + 300)
         self.assertEqual(backend.protocol.action_error(
             {'prior':{'target':backend.target_hash(self.options),'report':report}},
-            backend.target_hash(self.options), 'new', report['apply_attempted_at']+599)['state'], 'apply_cooldown')
+            backend.target_hash(self.options), 'new', report['apply_attempted_at']+299)['state'], 'apply_cooldown')
         self.assertIsNone(backend.protocol.action_error(
             {'prior':{'target':backend.target_hash(self.options),'report':report}},
-            backend.target_hash(self.options), 'new', report['apply_attempted_at']+600))
+            backend.target_hash(self.options), 'new', report['apply_attempted_at']+300))
 
-    def test_x50_request_cooldown_is_10_minutes_and_restart_never_replays(self):
+    def test_x50_request_cooldown_is_5_minutes_and_restart_never_replays(self):
         control = self.control()
         self.assertEqual(control.accept('optimize'), 'accepted')
-        self.assertEqual(control.control['next_allowed'], self.now+600)
+        self.assertEqual(control.control['next_allowed'], self.now+300)
         fresh = self.control()
         self.assertEqual(fresh.control['last_request'], 'interrupted_no_replay')
         self.assertIsNone(fresh.take())

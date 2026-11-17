@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.1 — estável
+
+- Intervalo padrão e mínimo entre pedidos de otimização reduzido de dez para cinco minutos (300 segundos), incluindo os bloqueios de aplicação M9/M5 e X50.
+- Valores explicitamente configurados acima de 300 segundos continuam respeitados; use request_cooldown_seconds: 300 para selecionar cinco minutos.
+- Mantém verificação da aplicação anterior e prevenção de reenvio após resultado incerto. O ajuste do EZmart não altera limites internos do firmware Deco nem garante mudança de canal em cada pedido.
+
 ## 0.12.0 — estável
 
 - Consolida as versões 0.12.0-dev.1 e dev.2, incluindo CPU/memória do principal, descoberta automática dos nós, nome do dispositivo sincronizado com o Deco, IP e conectividade por malha e ICMP independente.

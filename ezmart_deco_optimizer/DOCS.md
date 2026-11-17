@@ -1,4 +1,4 @@
-# EZmart Deco Optimizer — 0.12.0 estável
+# EZmart Deco Optimizer — 0.12.1 estável
 
 Monitoramento local e otimização sob demanda para M9 Plus V2 em AP, X50 1.30/1.8.4 e 1.0/1.11.1 em Router, e M5 3.0/3.2 com firmware 1.9.5 em Router/AP, respeitando os perfis exatos descritos abaixo. A 0.12 acrescenta desempenho do principal e descoberta dos nós com conectividade da malha e teste IP independente; CPU/memória e descoberta dos nós foram observadas em equipamento nos modelos M5, X50 e M9; renomeação e queda/recuperação dos satélites continuam em acompanhamento. A aplicação positiva M5 3.0 ainda não foi observada; a análise respondeu sem necessidade de otimizar.
 
@@ -12,7 +12,7 @@ A 0.8 adiciona MQTT Discovery, botões para pedidos sob demanda e sensores de ac
 
 Para instalações pela loja, atualizar os repositórios e usar **Atualizar** na página do EZmart. Essa operação constrói a nova imagem. Não desinstalar: preserve opções, identidade MQTT e histórico. Na instalação local de desenvolvimento, copiar a pasta inteira `ezmart_deco_optimizer` para `/local_apps/ezmart_deco_optimizer` e atualizar a loja antes de usar Atualizar. Não fazer atualização e reconstrução em sequência.
 
-Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.0` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
+Na cópia local, incluir todos os módulos, inclusive `guest_wifi.py`. Confirmar `Versão 0.12.1` no log. O Supervisor pode fazer downloads adicionais; não há garantia de duração do build. Alterações nas opções abaixo exigem apenas salvar e reiniciar **este app**, sem novo rebuild.
 
 ## Wi-Fi de visitantes no M9 — piloto 0.10
 
@@ -77,10 +77,10 @@ O padrão interno do monitoramento é 30 s no M9 e mínimo 60 s no X50. Para o X
 1. Instalar/atualizar o pacote 0.9 uma vez. Selecionar `x50`, IP, conta desta rede e certificado conferido. Ativar MQTT; manter `mqtt_commands_enabled: false` durante a conferência inicial.
 2. Salvar e iniciar. Conferir log X50 TPAP/TLS, inventário, modo Router e sensores **Canal backhaul**. Não devem aparecer análise/aplicação apenas por iniciar ou reconectar MQTT.
 3. Para habilitar ações sob demanda, ativar `tmp_enabled` e `mqtt_commands_enabled`, salvar e reiniciar o app. A automação pode chamar o mesmo botão Otimizar se necessário usado no M9.
-4. Aguardar pelo menos 10 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
+4. Aguardar pelo menos 5 minutos desde a última aplicação pelo diagnóstico. Preservar `/config/ezmart_x50_apply_journal.json`; ele não é importado pelo app, cujo registro é `/data/x50_optimize_journal.json`. Não usar ambos simultaneamente. Resolver primeiro qualquer aplicação incerta do diagnóstico.
 5. Após uma necessidade real, conferir aceite API 0, verificação stable e ID do novo pedido. Verificar última aplicação observa somente a tentativa registrada **neste app**; antes da primeira aplicação pelo app, fica indisponível.
 
-O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 10 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio e a 0.12 acrescenta CPU/memória do principal por device_resource/read, quando o firmware fornece esses dados.
+O X50 bloqueia ações se modo, hardware ou firmware diferirem do perfil validado. Não há tentativa automática de SSH, HTTPS ou certificado diferente. Toda autenticação é reservada em disco antes de conectar; falha deixa pausa de 15 minutos, inclusive após reinício. Aplicações e pedidos de otimização têm mínimo de 5 minutos; resultado incerto bloqueia nova aplicação e permite apenas recuperação por leitura. Canais reportados são de backhaul; o perfil atual não oferece número de canal host/radio e a 0.12 acrescenta CPU/memória do principal por device_resource/read, quando o firmware fornece esses dados.
 
 A seção seguinte documenta exclusivamente o modo manual M9, preservado para instalações anteriores.
 
@@ -105,7 +105,7 @@ Salvar e iniciar/reiniciar apenas o EZmart Deco Optimizer. Não reiniciar HAOS, 
 
 O modo optimize envia uma análise M9, exige resposta reconhecida com `need_optimize: true` e `optimize_item.channel: true`, observa os canais e só então envia uma única aplicação. Se não houver recomendação, termina em `optimization_not_needed`. Não força canais nem aplica um resultado antigo do journal. A nova análise ainda pode receber cache do próprio firmware; não há identificador de coleta para eliminar essa incerteza.
 
-Antes de enviar aplicação, o ID e a reserva são sincronizados em disco. Uma queda de conexão ou reinício não provoca reenvio, nem quando a resposta se perde. O mesmo ID devolve `already_requested` antes de autenticar via TMP. Outro ID fica bloqueado se uma tentativa anterior não tiver verificação concluída ou ainda estiver dentro de 600 segundos. O registro associa ID, IP e identidade SSH; reutilizar ID em outro alvo é recusado. Uma trava local impede duas aplicações/verificações simultâneas no mesmo diretório de dados.
+Antes de enviar aplicação, o ID e a reserva são sincronizados em disco. Uma queda de conexão ou reinício não provoca reenvio, nem quando a resposta se perde. O mesmo ID devolve `already_requested` antes de autenticar via TMP. Outro ID fica bloqueado se uma tentativa anterior não tiver verificação concluída ou ainda estiver dentro de 300 segundos. O registro associa ID, IP e identidade SSH; reutilizar ID em outro alvo é recusado. Uma trava local impede duas aplicações/verificações simultâneas no mesmo diretório de dados.
 
 ## Verificação e recuperação
 
@@ -122,7 +122,7 @@ tmp_optimize_request_id: m9-opt-001
 
 Salvar e reiniciar o app. `verify` retoma somente observações HTTPS a partir do registro persistido; não abre SSH/TMP e não reenvia comandos. É permitido durante o cooldown de aplicação. Se a sessão HTTPS anterior expirou, o reinício permite autenticar novamente, respeitando o cooldown de autenticação. Os prazos podem ser ampliados nas opções sem rebuild. Resultado ausente ou registro inválido bloqueia a operação; não apagar arquivos para contornar o bloqueio.
 
-Após concluir, voltar a `tmp_action: read` ou `tmp_enabled: false`. Outra otimização deliberada exige um ID novo, análise positiva, verificação anterior concluída e intervalo mínimo de 10 minutos desde a última tentativa de aplicação. Não alterar o ID para tratar um resultado incerto.
+Após concluir, voltar a `tmp_action: read` ou `tmp_enabled: false`. Outra otimização deliberada exige um ID novo, análise positiva, verificação anterior concluída e intervalo mínimo de 5 minutos desde a última tentativa de aplicação. Não alterar o ID para tratar um resultado incerto.
 
 ## Relatórios de aplicação
 
@@ -290,7 +290,7 @@ guest_control_enabled: true
 tmp_scan_backend: m9_acs
 tmp_timeout_seconds: 30
 poll_seconds: 300
-request_cooldown_seconds: 600
+request_cooldown_seconds: 300
 ```
 
 O nome histórico m9_acs identifica o fluxo compartilhado, sem mudar o modelo para M9. Certificado X50 não é usado. Somente pedidos explícitos abrem SSH/20001 e canal TMP local/20002. Automático confia no IP reservado, como no M9, sem autenticação independente da identidade SSH; pinned continua disponível. Proteção de autenticação é preservada. Não há fallback de transporte nem otimização M5 na inicialização.
@@ -334,3 +334,5 @@ Cadastros persistem em `/data/mesh_nodes.json`; desaparecimento da resposta não
 Validação inicial: confira nomes e IPs, renomeie um nó no app Deco e confirme que o dispositivo muda de nome mantendo entity_id. Compare o estado informado pela malha com Resposta IP. Valide um satélite desligado em uma janela apropriada antes de substituir as automações de monitoramento existentes. CPU/memória dos satélites individualmente não estão incluídas nesta versão.
 
 Na 0.12.0-dev.2, nomes padrão de localização do Deco são traduzidos para português (Kitchen → Cozinha, Office → Escritório, Living Room → Sala de estar). O nome personalizado tem prioridade e não é traduzido. O atributo `name_source` indica `custom`, `preset`, `reported` ou `fallback`. Não se consulta a área do Home Assistant para nomear dispositivos.
+
+Na 0.12.1, o padrão e mínimo de `request_cooldown_seconds` são 300 segundos (cinco minutos), com o mesmo mínimo para novas aplicações M9/M5/X50. Valores maiores salvos nas opções não são sobrescritos. As proteções de resultado incerto e os limites internos do firmware continuam independentes. Pedidos de otimização durante cooldown não são agendados: a automação deve aguardar Pronto para otimizar antes de enviar.

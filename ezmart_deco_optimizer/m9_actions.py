@@ -14,7 +14,7 @@ from diagnostics import project
 
 SCAN = 0x424F
 APPLY = 0x4250
-APPLY_COOLDOWN = 600
+APPLY_COOLDOWN = 300
 LOG = logging.getLogger('ezmart')
 
 
